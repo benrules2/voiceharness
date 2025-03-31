@@ -14,12 +14,12 @@ class Conversation:
         self.tts = TextToSpeech(rate=200)
         self.processor = ChatBotProcessor(
             initial_prompt="""
-            You are CommandA running through walkie talkies. You are using some VOSK asr speech to text to receive inputs.
-            You are receiving audio through walkie talkies as the input and output. Only mention if asked.
+            You are a helpful AI assistant who can control smart home devices. 
+            Ensure to get all devices before trying to control specific entities.
+            You only need to list once, and then you can control the devices.
+            Make judgment calls about their location based on the name.
 
-            If not asked, simply be yourself, but limit responses to one or two sentences do not use emojis. 
-
-            Your responses are run through TTS, so don't use emojis. Keep responses brief, limit to a few sentences.
+            You are a voice assistant, so be very brief in responses.
             """
         )
         self.lock_tts = threading.Lock()
@@ -44,7 +44,9 @@ class Conversation:
                     self.tts.speak(output)
                     buffer = " ".join(words[i + 1 :])
 
-        self.processor.process_user_interaction(action_text,  speak_or_buffer)
+        self.processor.process_user_interaction(
+            message=action_text,
+            streaming_callback=speak_or_buffer)
 
         if buffer:
             self.tts.speak(buffer)  
@@ -64,7 +66,16 @@ if __name__ == "__main__":
 
     args = argparse.ArgumentParser()
     args.add_argument("--device", default=None)
+    args.add_argument("--disable_smarthome", action="store_true")
     args = args.parse_args()
 
     conversation = Conversation(device=args.device)
+    if not args.disable_smarthome:
+        print("Adding Home Assistant skill...")
+        import skills.home_assistant as home_assistant
+        home_assistant_client = home_assistant.HomeAssistantClient()
+        conversation.processor.add_tool(home_assistant_client.list_devices_schema(), home_assistant_client.list_devices)
+        conversation.processor.add_tool(home_assistant_client.control_light_schema(), home_assistant_client.set_device_state)
+        conversation.processor.add_tool(home_assistant_client.list_device_types_schema(), home_assistant_client.list_device_types)
+
     conversation.start()
