@@ -8,14 +8,17 @@ import json
 from gtts import gTTS
 from pygame import mixer
 import threading
+import queue
 from argparse import ArgumentParser
 
-class TalkingPhotoHead:
+class TalkingHead:
     def __init__(self, image_path, width=800, height=600):
         # Initialize pygame
         pygame.init()
         mixer.init()
         
+        self.text_queue = queue.Queue()  # Thread-safe queue for receiving text
+        self.check_text_thread = threading.Thread(target=self._check_text_queue, daemon=True)
         # Set up display
         self.width = width
         self.height = height
@@ -51,7 +54,15 @@ class TalkingPhotoHead:
         
         # Audio variables
         self.audio_file = "temp_speech.mp3"
-    
+
+    def _check_text_queue(self):
+        while True:
+            try:
+                text = self.text_queue.get(timeout=0.1)  # Check for new text every 0.1 seconds
+                self.speak(text)  # Speak the text
+            except queue.Empty:
+                continue
+
     def scale_image(self):
         """Scale the image to fit the screen while maintaining aspect ratio"""
         img_width, img_height = self.original_image.get_size()
@@ -87,26 +98,42 @@ class TalkingPhotoHead:
         """Generate TTS audio from text"""
         tts = gTTS(text=text, lang='en')
         tts.save(self.audio_file)
-        
+
+    @staticmethod
+    def check_audio(self):
+        while mixer.music.get_busy():
+            time.sleep(0.1)
+        self.is_talking = False
+            
     def play_speech(self):
         """Play the speech audio"""
+        self.is_talking = True
         mixer.music.load(self.audio_file)
         mixer.music.play()
-        self.is_talking = True
         
         # Monitor when audio stops playing
         def check_audio():
             while mixer.music.get_busy():
-                time.sleep(0.1)
+                time.sleep(0.5)
             self.is_talking = False
-            
-        # Start monitoring in a separate thread
+
         threading.Thread(target=check_audio).start()
     
     def say(self, text):
         """Generate and play speech"""
+        print("Speaking:", text)    
+        self.text_queue.put(text)
+
+    def speak(self, text):
         self.generate_speech(text)
         self.play_speech()
+
+        while self.is_talking:
+            time.sleep(0.1)
+    
+    def completed_speaking(self):
+        """Check if the speech is over"""
+        return not self.is_talking and self.text_queue.empty()
     
     def manipulate_mouth(self):
         """Manipulate the mouth area of the image itself, not just draw over it"""
@@ -230,6 +257,7 @@ class TalkingPhotoHead:
             return self.mouth_region
 
         clock = pygame.time.Clock()
+
         
         while self.running:
             # Handle events
@@ -273,12 +301,11 @@ class TalkingPhotoHead:
 
         pygame.quit()
         
-        
-
         return self.mouth_region
 
     def run(self, edit_mode=False):
         """Main animation loop"""
+        self.check_text_thread.start()
         clock = pygame.time.Clock()
         
         while self.running:
@@ -329,10 +356,6 @@ class TalkingPhotoHead:
             except:
                 pass
         pygame.quit()
-        
-        # If in edit mode, return the final mouth region
-        if edit_mode:
-            return self.mouth_region
 
 
 def main(image_path):
@@ -349,7 +372,7 @@ def main(image_path):
     print("Press Space/1/2 to test speech")
     print("Press ESC when done")
     
-    talking_head = TalkingPhotoHead(image_path)
+    talking_head = TalkingHead(image_path)
     talking_head.init_mouth_rect()
     talking_head.run()
 

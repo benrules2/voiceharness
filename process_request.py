@@ -15,12 +15,16 @@ class ChatBotProcessor:
 
         self.co = cohere.ClientV2(api_key)
         self.chat_history = [{"role": "system", "content": initial_prompt}]
+        self.processing = False
 
     
     def add_message_to_chat_context(self, message: str, role: str = "user"):
         self.chat_history.append({"role": role, "content": message})
 
     def process_user_interaction(self, message: str, streaming_callback: Callable[[str], None]):
+
+        self.processing = True
+
         if message == "":
             return ""
         
@@ -42,7 +46,9 @@ class ChatBotProcessor:
                     
             if event.type == "content-end":
                 self.add_message_to_chat_context(response, role="assistant")
-    
+        
+        self.processing = False
+
     def clear_history(self) -> None:
         """Clear the chat history except for the initial prompt"""
         initial_prompt = self.chat_history[0]
