@@ -5,7 +5,7 @@ import time
 import os
 import json 
 
-from gtts import gTTS
+from text_to_speech import TextToSpeech, TextToSpeech
 from pygame import mixer
 import threading
 import queue
@@ -18,10 +18,9 @@ class TalkingHead:
         # Initialize pygame
         pygame.init()
         mixer.init()
+        self.tts = TextToSpeech(rate=200)
         
-        self.text_queue = queue.Queue()  # Thread-safe queue for receiving text
-        self.check_text_thread = threading.Thread(target=self._check_text_queue, daemon=True)
-        # Set up display
+        self.text_queue = queue.Queue()  # Thread-safe queue for receiving text        # Set up display
         self.width = width
         self.height = height
         self.screen = pygame.display.set_mode((width, height))
@@ -51,20 +50,9 @@ class TalkingHead:
         
         # State variables
         self.running = True
-        self.is_talking = False
         self.mouth_openness = 0
         
-        # Audio variables
-        self.audio_file = "temp_speech.mp3"
 
-    def _check_text_queue(self):
-        while True:
-            try:
-                text = self.text_queue.get(timeout=0.1)  # Check for new text every 0.1 seconds
-                self.speak(text)  # Speak the text
-            except queue.Empty:
-                time.sleep(0.1)  # Sleep briefly if no text is available
-                continue
 
     def scale_image(self):
         """Scale the image to fit the screen while maintaining aspect ratio"""
@@ -96,47 +84,15 @@ class TalkingHead:
         
         # Return rectangle (left, top, width, height)
         return (center_x - width//2, center_y - height//2, width, height)
-        
-    def generate_speech(self, text):
-        """Generate TTS audio from text"""
-        tts = gTTS(text=text, lang='en')
-        tts.save(self.audio_file)
-
-    @staticmethod
-    def check_audio(self):
-        while mixer.music.get_busy():
-            time.sleep(0.1)
-        self.is_talking = False
-            
-    def play_speech(self):
-        """Play the speech audio"""
-        self.is_talking = True
-        mixer.music.load(self.audio_file)
-        mixer.music.play()
-        
-        # Monitor when audio stops playing
-        def check_audio():
-            while mixer.music.get_busy():
-                time.sleep(0.5)
-            self.is_talking = False
-
-        threading.Thread(target=check_audio).start()
     
     def say(self, text):
         """Generate and play speech"""
         print("Queuing:", text)    
-        self.text_queue.put(text)
-
-    def speak(self, text):
-        self.generate_speech(text)
-        self.play_speech()
-
-        while self.is_talking:
-            time.sleep(0.1)
+        self.tts.speak(text)
     
     def completed_speaking(self):
         """Check if the speech is over"""
-        return not self.is_talking and self.text_queue.empty()
+        return not self.tts.speaking
     
     def manipulate_mouth(self):
         """Manipulate the mouth area of the image itself, not just draw over it"""
@@ -155,7 +111,7 @@ class TalkingHead:
         rel_right = min(img_width, rel_left + width)
         rel_bottom = min(img_height, rel_top + height)
         
-        if self.is_talking:
+        if self.tts.speaking:
             # Calculate mouth openness with a sine wave
             openness = abs(np.sin(pygame.time.get_ticks() / 100)) * 0.7
             
@@ -217,11 +173,11 @@ class TalkingHead:
                 self.running = False
             elif event.key == pygame.K_SPACE:
                 # Say something when space is pressed
-                self.say("Hello there! I am a talking photo animation.")
+                self.tts.queue_speech("Hello there! I am a talking photo animation.")
             elif event.key == pygame.K_1:
-                self.say("Survivor is a game of strategy and survival.")
+                self.tts.queue_speech("Survivor is a game of strategy and survival.")
             elif event.key == pygame.K_2:
-                self.say("Outwit, outlast, and outplay!")
+                self.tts.queue_speech("Outwit, outlast, and outplay!")
         elif edit_mode and event.type == pygame.MOUSEBUTTONDOWN:
             # In edit mode, allow repositioning the mouth by clicking
             x, y = event.pos
@@ -308,7 +264,6 @@ class TalkingHead:
 
     def run(self, edit_mode=False):
         """Main animation loop"""
-        self.check_text_thread.start()
         clock = pygame.time.Clock()
         
         print("running main loop of talking head")
@@ -323,7 +278,7 @@ class TalkingHead:
                 self.screen.fill((240, 240, 240))  # Background
                 
                 # Update the mouth if talking
-                if self.is_talking:
+                if self.tts.speaking:
                     self.manipulate_mouth()
                 else:
                     # Reset to base image when not talking
@@ -357,12 +312,6 @@ class TalkingHead:
             except Exception as e:
                 print(f"Error in main loop: {e}")
                 
-        # Clean up
-        if os.path.exists(self.audio_file):
-            try:
-                os.remove(self.audio_file)
-            except:
-                pass
         pygame.quit()
 
 

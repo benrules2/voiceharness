@@ -25,11 +25,11 @@ class Conversation:
         self.proccessor_lock = threading.Lock()
 
     def process_request(self) -> str:
-        print("TTS Status: ", self.talking_head.is_talking)
+        print("TTS Speaking Status: ", self.talking_head.tts.speaking)
         print("Processor Status: ", self.processor.processing)
 
 
-        if self.talking_head.is_talking or self.processor.processing:
+        if self.talking_head.tts.speaking or self.processor.processing:
             print("Currently processing a request or TTS is active. Please wait...")
             time.sleep(0.5)
             return

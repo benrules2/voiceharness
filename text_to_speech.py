@@ -2,48 +2,66 @@ import pyttsx3
 import argparse
 import threading
 import queue
+import time
 
+
+import argparse
+import threading
+import queue
+import subprocess
+import platform
 import time
 
 
 class TextToSpeech:
-    def __init__(self, voice_id=None, rate=None, debug=False):
-
-        self.engine = pyttsx3.init(debug=debug)
-        if voice_id:
-            self.voice_id = voice_id
-            self.engine.setProperty('voice', voice_id)
-        if rate:
-            self.rate = rate
-            self.engine.setProperty('rate', rate)        
-        self.queue = queue.Queue()
-
-        self.engine.connect('finished-utterance', self._on_finished)
-
-    def _on_finished(self, name, completed):
-        if completed:
-            print(f"Finished speaking: {name}")
-        else:
-            print(f"Stopped speaking: {name}")
-        
-        self.engine.stop()
+    def __init__(self, voice_id=None, rate=200):
+        self.text_queue = queue.Queue()
         self.speaking = False
+        self.voice_id = voice_id
+        self.rate = rate
 
-    def speak(self, text: str):
-        self.speaking = True
-        self.engine.say(text)
-        self.engine.runAndWait()
+        self.is_mac = platform.system() == "Darwin"
 
-    def select_voice(self):
-        voices = self.engine.getProperty('voices')       #getting details of current voice
-        for i, voice in enumerate(voices):
-            print(f"Voice: {voice.name} ({voice.id})")  
-            self.engine.setProperty('voice', voice.id)   #changing index, changes voices. 1 for female
-            self.engine.say(f"Hello, how are you? This is voice {i}")
-            self.engine.runAndWait()
+        threading.Thread(target=self._worker, daemon=True).start()
 
-            if input("Accept voice? (y/n)") == 'y':
-                break
+    def _speak_subprocess(self, text):
+        try:
+            if self.is_mac:
+                cmd = ["say", "-r", str(self.rate), text]
+                if self.voice_id:
+                    cmd = ["say", "-v", self.voice_id, "-r", str(self.rate), text]
+            else:
+                # Raspberry Pi/Linux
+                cmd = ["espeak", "-s", str(self.rate), text]
+                if self.voice_id:
+                    cmd = ["espeak", "-s", str(self.rate), "-v", self.voice_id, text]
+
+            subprocess.run(cmd, check=True)
+        except Exception as e:
+            print(f"Subprocess TTS error: {e}")
+
+    def _worker(self):
+        while True:
+            try:
+                text = self.text_queue.get(timeout=0.5)
+                self.speaking = True
+                print(f"[subprocess start] {text}")
+                self._speak_subprocess(text)
+                print(f"[subprocess end] {text}")
+                self.speaking = False
+            except queue.Empty:
+                continue
+            except Exception as e:
+                print(f"TTS Worker Error: {e}")
+                self.speaking = False
+
+    def speak(self, text):
+        self.text_queue.put(text)
+
+    def completed_speaking(self):
+        return self.text_queue.empty() and not self.speaking
+
+
 
 if __name__ == "__main__":
 
@@ -61,3 +79,7 @@ if __name__ == "__main__":
     print(f"Speaking: {args.text}")
     for i in range(0,5):
         tts.speak(args.text + f'iteration {i}')
+
+    while not tts.completed_speaking():
+        time.sleep(5)
+        print("Waiting for TTS to finish...")
