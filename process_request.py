@@ -26,6 +26,7 @@ class ChatBotProcessor:
         self.processing = True
 
         if message == "":
+            self.processing = False
             return ""
         
         self.add_message_to_chat_context(message)

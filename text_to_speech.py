@@ -5,6 +5,7 @@ import queue
 
 import time
 
+
 class TextToSpeech:
     def __init__(self, voice_id=None, rate=None, debug=False):
 
@@ -17,10 +18,19 @@ class TextToSpeech:
             self.engine.setProperty('rate', rate)        
         self.queue = queue.Queue()
 
-    def get_lock(self):
-        return self.speech_lock.acquire(blocking=True, timeout=10)
+        self.engine.connect('finished-utterance', self._on_finished)
+
+    def _on_finished(self, name, completed):
+        if completed:
+            print(f"Finished speaking: {name}")
+        else:
+            print(f"Stopped speaking: {name}")
+        
+        self.engine.stop()
+        self.speaking = False
 
     def speak(self, text: str):
+        self.speaking = True
         self.engine.say(text)
         self.engine.runAndWait()
 

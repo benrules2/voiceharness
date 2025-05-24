@@ -90,8 +90,5 @@ if __name__ == "__main__":
 
     # Keep the main thread running
     conversation.talking_head.init_mouth_rect()
-    try:
-        while True:
-            conversation.talking_head.run()
-    except KeyboardInterrupt:
-        print("Main thread interrupted. Exiting...")
+   
+    conversation.talking_head.run()

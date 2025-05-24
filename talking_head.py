@@ -11,6 +11,8 @@ import threading
 import queue
 from argparse import ArgumentParser
 
+from animate import Animate
+
 class TalkingHead:
     def __init__(self, image_path, width=800, height=600):
         # Initialize pygame
@@ -61,6 +63,7 @@ class TalkingHead:
                 text = self.text_queue.get(timeout=0.1)  # Check for new text every 0.1 seconds
                 self.speak(text)  # Speak the text
             except queue.Empty:
+                time.sleep(0.1)  # Sleep briefly if no text is available
                 continue
 
     def scale_image(self):
@@ -121,7 +124,7 @@ class TalkingHead:
     
     def say(self, text):
         """Generate and play speech"""
-        print("Speaking:", text)    
+        print("Queuing:", text)    
         self.text_queue.put(text)
 
     def speak(self, text):
@@ -308,47 +311,52 @@ class TalkingHead:
         self.check_text_thread.start()
         clock = pygame.time.Clock()
         
+        print("running main loop of talking head")
+
         while self.running:
-            # Handle events
-            for event in pygame.event.get():
-                self.handle_events(event, edit_mode)
-            
-            # Draw everything
-            self.screen.fill((240, 240, 240))  # Background
-            
-            # Update the mouth if talking
-            if self.is_talking:
-                self.manipulate_mouth()
-            else:
-                # Reset to base image when not talking
-                self.image = self.base_image.copy()
-            
-            # Draw the image with manipulated mouth
-            self.screen.blit(self.image, (self.image_x, self.image_y))
-            
-            # If in edit mode, draw the mouth region outline
-            if edit_mode:
-                self.draw_mouth_region_editor()
+            try:
+                # Handle events
+                for event in pygame.event.get():
+                    self.handle_events(event, edit_mode)
                 
-                # Display instructions
-                font = pygame.font.SysFont(None, 24)
-                instructions = [
-                    "EDIT MODE: Click to position mouth",
-                    "Arrow keys to resize mouth",
-                    "Space/1/2 to test speech",
-                    "ESC to quit"
-                ]
+                # Draw everything
+                self.screen.fill((240, 240, 240))  # Background
                 
-                for i, text in enumerate(instructions):
-                    surf = font.render(text, True, (0, 0, 0))
-                    self.screen.blit(surf, (10, 10 + 25 * i))
-            
-            # Update the display
-            pygame.display.flip()
-            
-            # Cap at 30 FPS
-            clock.tick(30)
-        
+                # Update the mouth if talking
+                if self.is_talking:
+                    self.manipulate_mouth()
+                else:
+                    # Reset to base image when not talking
+                    self.image = self.base_image.copy()
+                
+                # Draw the image with manipulated mouth
+                self.screen.blit(self.image, (self.image_x, self.image_y))
+                
+                # If in edit mode, draw the mouth region outline
+                if edit_mode:
+                    self.draw_mouth_region_editor()
+                    
+                    # Display instructions
+                    font = pygame.font.SysFont(None, 24)
+                    instructions = [
+                        "EDIT MODE: Click to position mouth",
+                        "Arrow keys to resize mouth",
+                        "Space/1/2 to test speech",
+                        "ESC to quit"
+                    ]
+                    
+                    for i, text in enumerate(instructions):
+                        surf = font.render(text, True, (0, 0, 0))
+                        self.screen.blit(surf, (10, 10 + 25 * i))
+                
+                # Update the display
+                pygame.display.flip()
+                
+                # Cap at 30 FPS
+                clock.tick(30)
+            except Exception as e:
+                print(f"Error in main loop: {e}")
+                
         # Clean up
         if os.path.exists(self.audio_file):
             try:
