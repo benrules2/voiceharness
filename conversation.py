@@ -58,7 +58,7 @@ class Conversation:
 
         self.processor.process_user_interaction(action_text, speak_or_buffer)
 
-        while self.processor.processing or not self.talking_head.completed_speaking():
+        while self.processor.processing or not self.talking_head.tts.completed_speaking():
             if buffer:
                 with self.lock_tts:
                     self.talking_head.say(buffer) 
@@ -88,7 +88,4 @@ if __name__ == "__main__":
     conversation_thread = threading.Thread(target=conversation.start)
     conversation_thread.start()
 
-    # Keep the main thread running
-    conversation.talking_head.init_mouth_rect()
-   
     conversation.talking_head.run()
