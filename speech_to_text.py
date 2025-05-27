@@ -25,7 +25,7 @@ def select_input_device():
     return index
 
 class Listener():
-    def __init__(self, device=0, model="en-us"):
+    def __init__(self, device=None, model="en-us"):
         #    model_name="vosk-model-en-us-0.22-lgraph" - slower but better model
 
         self.model = Model(lang=model, model_name="vosk-model-small-en-us-0.15")
@@ -36,7 +36,7 @@ class Listener():
         self.samplerate = int(device_info["default_samplerate"])
         print("Detected samplerate: ", self.samplerate)
         
-        self.samplerate = 44100
+        self.samplerate = 16000
 
     def listen(self, max_duration=20):
         with sd.RawInputStream(samplerate=self.samplerate, blocksize = 8000, device=self.device,
@@ -53,12 +53,20 @@ class Listener():
                 data = self.q.get()
                 if rec.AcceptWaveform(data):
                     output = rec.Result()
-                    return loads(output).get("text", None)
+                    text = loads(output).get("text", "").strip()
+                    if text:
+                        return text
                 
                 if (datetime.now() - start_time).seconds > max_duration:
                     partial = rec.PartialResult()
                     print('partial', partial)
-                    return partial
+                    partial_text = loads(partial).get("partial", "").strip()
+                    if partial_text:
+                        print("Partial result:", partial)
+                        return partial_text
+                    else:
+                        print("No speech detected")
+                        return ""
 
     def callback(self, indata, frames, time, status):
         if status:

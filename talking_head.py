@@ -5,9 +5,9 @@ import re
 import json
 import numpy as np
 from text_to_speech import TextToSpeech
-from robot.mouth_controllers import HeadController, PygameMouthController
+from robot.mouth_controllers import HeadController
 
-class HeadAnimation:
+class PygameHeadAnimation:
     def __init__(self, image_path, width=800, height=600):
         pygame.init()
         self.width = width
@@ -76,22 +76,19 @@ class HeadAnimation:
 class TalkingHead:
     def __init__(self, image_path, use_gpio=True):
         self.tts = TextToSpeech(rate=200)
-        self.head = HeadAnimation(image_path)
         self.running = True
 
         if use_gpio:
-            self.mouth = HeadController()
+            self.head = HeadController()
         else:
-            self.head = HeadAnimation(image_path)
-            self.mouth = PygameMouthController(self.head)
-
+            self.head = PygameHeadAnimation(image_path)
 
     def say(self, text):
-        cleaned_text = re.sub(r'[^a-zA-Z0-9\s.,!?\'"]', ' ', text)
+        cleaned_text = re.sub(r'[^a-zA-Z0-9\s.,!?\'’\""]', ' ', text)
         self.tts.speak(cleaned_text)
 
     def run(self):
-        is_pygame = isinstance(self.mouth, PygameMouthController)
+        is_pygame = isinstance(self.head, PygameHeadAnimation)
         clock = pygame.time.Clock() if is_pygame else None
 
         while self.running:
@@ -101,7 +98,7 @@ class TalkingHead:
                         self.running = False
 
             
-            self.mouth.move(self.tts.speaking)
+            self.head.move(self.tts.speaking)
 
             if clock:
                 clock.tick(30)

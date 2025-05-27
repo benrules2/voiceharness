@@ -9,9 +9,8 @@ import threading
 import time
 
 class Conversation:
-    def __init__(self, device=None, image_path='head.webp'):
-        self.device = device if device else select_input_device()
-        self.listener = Listener(device=self.device, model="en-us")
+    def __init__(self, audio_device=None, image_path='head.webp'):
+        self.listener = Listener(device=audio_device, model="en-us")
         self.talking_head = TalkingHead(image_path=image_path)  # Initialize TalkingHead
         self.processor = ChatBotProcessor(
             initial_prompt="""
@@ -66,7 +65,7 @@ class Conversation:
             if buffer:
                 with self.lock_tts:
                     self.talking_head.say(buffer) 
-            time.sleep(0.1)
+            time.sleep(0.05)
         
         print("****** PROCESSING COMPLETE TTS DONE ******")
 
@@ -84,9 +83,14 @@ class Conversation:
 if __name__ == "__main__":
     args = argparse.ArgumentParser()
     args.add_argument("--device", default=None)
-    args = args.parse_args()
+    args.add_argument("--select_device", default=False, action="store_true",)
 
-    conversation = Conversation(device=args.device)
+    args = args.parse_args()
+    
+    device = args.device
+    if args.select_device:
+        device = select_input_device()
+    conversation = Conversation(audio_device=device)
 
     # Start conversation.start() in a separate thread
     conversation_thread = threading.Thread(target=conversation.start)

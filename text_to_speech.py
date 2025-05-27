@@ -32,9 +32,9 @@ class TextToSpeech:
                     cmd = ["say", "-v", self.voice_id, "-r", str(self.rate), text]
             else:
                 # Raspberry Pi/Linux
-                cmd = ["espeak", "-s", str(self.rate), text]
+                cmd = ["espeak-ng", "-s", str(self.rate), text]
                 if self.voice_id:
-                    cmd = ["espeak", "-s", str(self.rate), "-v", self.voice_id, text]
+                    cmd = ["espeak-ng", "-s", str(self.rate), "-v", self.voice_id, text]
 
             subprocess.run(cmd, check=True)
         except Exception as e:
@@ -45,9 +45,8 @@ class TextToSpeech:
             try:
                 text = self.text_queue.get(timeout=0.5)
                 self.speaking = True
-                print(f"[subprocess start] {text}")
+                print(f"[speaking] {text}")
                 self._speak_subprocess(text)
-                print(f"[subprocess end] {text}")
                 self.speaking = False
             except queue.Empty:
                 continue
