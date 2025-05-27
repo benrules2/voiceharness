@@ -34,7 +34,10 @@ class Listener():
 
         device_info = sd.query_devices(self.device, "input")
         self.samplerate = int(device_info["default_samplerate"])
+        print("Detected samplerate: ", self.samplerate)
         
+        self.samplerate = 44100
+
     def listen(self, max_duration=20):
         with sd.RawInputStream(samplerate=self.samplerate, blocksize = 8000, device=self.device,
             dtype="int16", channels=1, callback=self.callback):

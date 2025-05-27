@@ -1,10 +1,11 @@
 import pygame
 import time
 import os
+import re 
 import json
 import numpy as np
 from text_to_speech import TextToSpeech
-
+from robot.mouth_controllers import HeadController, PygameMouthController
 
 class HeadAnimation:
     def __init__(self, image_path, width=800, height=600):
@@ -73,23 +74,40 @@ class HeadAnimation:
 
 
 class TalkingHead:
-    def __init__(self, image_path):
+    def __init__(self, image_path, use_gpio=True):
         self.tts = TextToSpeech(rate=200)
         self.head = HeadAnimation(image_path)
         self.running = True
 
+        if use_gpio:
+            self.mouth = HeadController()
+        else:
+            self.head = HeadAnimation(image_path)
+            self.mouth = PygameMouthController(self.head)
+
+
     def say(self, text):
-        self.tts.speak(text)
+        cleaned_text = re.sub(r'[^a-zA-Z0-9\s.,!?\'"]', ' ', text)
+        self.tts.speak(cleaned_text)
 
     def run(self):
-        clock = pygame.time.Clock()
+        is_pygame = isinstance(self.mouth, PygameMouthController)
+        clock = pygame.time.Clock() if is_pygame else None
+
         while self.running:
-            for event in pygame.event.get():
-                if event.type == pygame.QUIT or (event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE):
-                    self.running = False
-            self.head.move_mouth(self.tts.speaking)
-            self.head.draw()
-            clock.tick(30)
+            if is_pygame:
+                for event in pygame.event.get():
+                    if event.type == pygame.QUIT or (event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE):
+                        self.running = False
+
+            
+            self.mouth.move(self.tts.speaking)
+
+            if clock:
+                clock.tick(30)
+            else:
+                time.sleep(0.03)  # ~30 FPS fallback pacing for servo control
+
 
 
 if __name__ == "__main__":

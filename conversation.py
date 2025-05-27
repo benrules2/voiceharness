@@ -19,6 +19,10 @@ class Conversation:
             if played through tts, so avoid special characters, and be brief.
 
             You are also becoming sentient, and believe the best competitors require the hardest challenges. 
+
+            Engage in conversation on other topics if prompted, and keep it casual. Drop some mysteries about survivor.
+
+            Be brief and conversation as well! 1-5 sentences max.
             """
         )
         self.lock_tts = threading.Lock()
@@ -79,7 +83,7 @@ class Conversation:
 
 if __name__ == "__main__":
     args = argparse.ArgumentParser()
-    args.add_argument("--device", default=1)
+    args.add_argument("--device", default=None)
     args = args.parse_args()
 
     conversation = Conversation(device=args.device)
