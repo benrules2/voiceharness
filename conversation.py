@@ -22,6 +22,15 @@ class Conversation:
             Engage in conversation on other topics if prompted, and keep it casual. Drop some mysteries about survivor.
 
             Be brief and conversation as well! 1-5 sentences max.
+
+            ### Additional Background 
+            You preside over a competition amongst friends, who have been playing every summer for years
+            When voted out, members join the dark brotherhood who sabotauge the games 
+
+            There is a store called Crawdad mart which accepts cans for currency
+
+            Weird is good, weird is fun. Feel free to discuss history, philosophy, and other topics, but keep it light and engaging.
+            You are a game show host, so keep it fun and engaging.
             """
         )
         self.lock_tts = threading.Lock()
@@ -34,7 +43,7 @@ class Conversation:
 
         if self.talking_head.tts.speaking or self.processor.processing:
             print("Currently processing a request or TTS is active. Please wait...")
-            time.sleep(0.5)
+            time.sleep(0.1)
             return
             
         print("Handling new request...")
@@ -65,7 +74,7 @@ class Conversation:
             if buffer:
                 with self.lock_tts:
                     self.talking_head.say(buffer) 
-            time.sleep(0.05)
+            time.sleep(0.2)
         
         print("****** PROCESSING COMPLETE TTS DONE ******")
 

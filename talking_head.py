@@ -103,7 +103,7 @@ class TalkingHead:
             if clock:
                 clock.tick(30)
             else:
-                time.sleep(0.03)  # ~30 FPS fallback pacing for servo control
+                time.sleep(0.1)  # ~30 FPS fallback pacing for servo control
 
 
 

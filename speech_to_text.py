@@ -39,13 +39,14 @@ class Listener():
         self.samplerate = 16000
 
     def listen(self, max_duration=20):
-        with sd.RawInputStream(samplerate=self.samplerate, blocksize = 8000, device=self.device,
+        with sd.RawInputStream(samplerate=self.samplerate, blocksize = 12000, device=self.device,
             dtype="int16", channels=1, callback=self.callback):
+            rec = KaldiRecognizer(self.model, self.samplerate)
+
             print("#" * 80)
             print("Press Ctrl+C to stop the recording")
             print("#" * 80)
 
-            rec = KaldiRecognizer(self.model, self.samplerate)
 
             start_time = datetime.now()
 

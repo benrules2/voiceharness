@@ -16,7 +16,7 @@ class ChatBotProcessor:
         self.co = cohere.ClientV2(api_key)
         self.chat_history = [{"role": "system", "content": initial_prompt}]
         self.processing = False
-
+        self.max_repitions = 10  # Maximum number of repeated outputs before stopping streaming
     
     def add_message_to_chat_context(self, message: str, role: str = "user"):
         self.chat_history.append({"role": role, "content": message})
@@ -37,17 +37,27 @@ class ChatBotProcessor:
         )
 
         response = ""
+        previous_output = ""
+        repitions = 0 
         for event in res:
             if event and (event.type == "content-delta"):
                 delta = event.delta.message.content.text
                 response += delta
                 
                 if streaming_callback:
+                    if delta == previous_output:
+                        repitions += 1
+                    else:
+                        previous_output = delta
                     streaming_callback(delta)
                     
             if event.type == "content-end":
                 self.add_message_to_chat_context(response, role="assistant")
-        
+
+            if repitions > self.max_repitions:
+                print("Detected repeated output, stopping streaming.")
+                self.clear_history()
+                break
         self.processing = False
 
     def clear_history(self) -> None:
