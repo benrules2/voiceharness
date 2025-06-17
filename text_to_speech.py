@@ -1,4 +1,3 @@
-import pyttsx3
 import argparse
 import threading
 import queue
@@ -25,7 +24,9 @@ class TextToSpeech:
         self.worker_ready.wait()  # Blocks until worker signals it's ready
         print("[TTS] Worker thread ready")
 
-        self._init_phrase = ". init . init ."
+        self._init_phrase = " "
+        if not self.is_mac:
+            self._init_phrase = ". init . init ."
 
     def _speak_subprocess(self, text):
         try:
@@ -101,3 +102,5 @@ if __name__ == "__main__":
         print("Waiting for TTS to finish...")
     
     print("TTS completed!")
+
+

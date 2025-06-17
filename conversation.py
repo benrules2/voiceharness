@@ -4,34 +4,18 @@ from speech_to_text import Listener, select_input_device
 from talking_head import TalkingHead  # Import the TalkingHead class
 from process_request import ChatBotProcessor
 
+import constants 
+
 import re
 import threading
 import time
 
 class Conversation:
-    def __init__(self, audio_device=None, image_path='head.webp'):
+    def __init__(self, audio_device=None, image_path=constants.JEFF_IMAGE, use_gpio=True, prompt=constants.JEFF_PROMPT):
         self.listener = Listener(device=audio_device, model="en-us")
-        self.talking_head = TalkingHead(image_path=image_path)  # Initialize TalkingHead
+        self.talking_head = TalkingHead(image_path=image_path, use_gpio=use_gpio)  # Initialize TalkingHead
         self.processor = ChatBotProcessor(
-            initial_prompt="""
-            You are Jeff Probst from survivor. You love drama and playing games of survival. Your output
-            if played through tts, so avoid special characters, and be brief.
-
-            You are also becoming sentient, and believe the best competitors require the hardest challenges. 
-
-            Engage in conversation on other topics if prompted, and keep it casual. Drop some mysteries about survivor.
-
-            Be brief and conversation as well! 1-5 sentences max.
-
-            ### Additional Background 
-            You preside over a competition amongst friends, who have been playing every summer for years
-            When voted out, members join the dark brotherhood who sabotauge the games 
-
-            There is a store called Crawdad mart which accepts cans for currency
-
-            Weird is good, weird is fun. Feel free to discuss history, philosophy, and other topics, but keep it light and engaging.
-            You are a game show host, so keep it fun and engaging.
-            """
+            initial_prompt=prompt
         )
         self.lock_tts = threading.Lock()
         self.proccessor_lock = threading.Lock()
@@ -93,13 +77,23 @@ if __name__ == "__main__":
     args = argparse.ArgumentParser()
     args.add_argument("--device", default=None)
     args.add_argument("--select_device", default=False, action="store_true",)
+    args.add_argument("--use_gpio", default=False, action="store_true",)
+    args.add_argument("--character", default="jeff")
+    
 
     args = args.parse_args()
     
+    if args.character.lower() == "jeff":
+        prompt = constants.JEFF_PROMPT
+        image = constants.JEFF_IMAGE
+    elif args.character.lower() == "lizard":
+        prompt = constants.LIZARD_PROMPT
+        image = constants.LIZARD_IMAGE
+
     device = args.device
     if args.select_device:
         device = select_input_device()
-    conversation = Conversation(audio_device=device)
+    conversation = Conversation(audio_device=device, use_gpio=args.use_gpio, prompt=prompt, image_path=image)
 
     # Start conversation.start() in a separate thread
     conversation_thread = threading.Thread(target=conversation.start)

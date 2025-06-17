@@ -5,9 +5,9 @@ import re
 import json
 import numpy as np
 from text_to_speech import TextToSpeech
-from robot.mouth_controllers import HeadController
+from tts.eleven_labs import ElevenLabsTTS  # Assuming this is the correct import for ElevenLabs TTS
 
-class PygameHeadAnimation:
+class PygameHead:
     def __init__(self, image_path, width=800, height=600):
         pygame.init()
         self.width = width
@@ -33,7 +33,8 @@ class PygameHeadAnimation:
         return pygame.transform.scale(img, (int(img.get_width() * scale), int(img.get_height() * scale)))
 
     def _load_mouth_config(self):
-        config_path = self.image_path.replace(".webp", "_mouth.json")
+        base_path = self.image_path.rsplit('.', 1)[0]
+        config_path = base_path + "_mouth.json"
         if os.path.exists(config_path):
             with open(config_path, 'r') as f:
                 self.mouth_region = json.load(f)
@@ -46,26 +47,39 @@ class PygameHeadAnimation:
         h = int(img_h * self.mouth_region['height'])
         return (cx - w//2, cy - h//2, w, h)
 
-    def move_mouth(self, speaking):
+    def move(self, speaking):
         self.image = self.base_image.copy()
-        if not speaking:
-            return
-
         left, top, width, height = self._get_mouth_rect()
-        openness = abs(np.sin(pygame.time.get_ticks() / 100)) * 0.7
-        upper_height = height // 2
-        lower_height = height - upper_height
-        move_amt = int(height * openness * 0.3)
 
-        mouth_surface = self.base_image.subsurface(pygame.Rect(left, top, width, height))
-        upper_lip = pygame.Surface((width, upper_height), pygame.SRCALPHA)
-        lower_lip = pygame.Surface((width, lower_height), pygame.SRCALPHA)
-        upper_lip.blit(mouth_surface, (0, 0), (0, 0, width, upper_height))
-        lower_lip.blit(mouth_surface, (0, 0), (0, upper_height, width, lower_height))
+        if speaking:
+            openness = abs(np.sin(pygame.time.get_ticks() / 100)) * 0.7
+            try:
+                upper_height = height // 2
+                lower_height = height - upper_height
 
-        pygame.draw.rect(self.image, (10, 0, 0), (left, top - move_amt, width, height + move_amt))
-        self.image.blit(upper_lip, (left, top - move_amt))
-        self.image.blit(lower_lip, (left, top + upper_height + move_amt))
+                mouth_surface = self.base_image.subsurface(pygame.Rect(
+                    left, top, width, height
+                ))
+
+                upper_lip = pygame.Surface((width, upper_height), pygame.SRCALPHA)
+                upper_lip.blit(mouth_surface, (0, 0), (0, 0, width, upper_height))
+
+                lower_lip = pygame.Surface((width, lower_height), pygame.SRCALPHA)
+                lower_lip.blit(mouth_surface, (0, 0), (0, upper_height, width, lower_height))
+
+                move_amount = int(height * openness * 0.3)
+                cavity_left = left + (width - int(width * 0.7)) // 2
+                cavity_top = top - move_amount
+
+                pygame.draw.rect(self.image, (10, 0, 0), 
+                                 (left, cavity_top, width, height + move_amount))
+
+                self.image.blit(upper_lip, (left, cavity_top))
+                self.image.blit(lower_lip, (left, top + upper_height + move_amount))
+            except Exception as e:
+                print(f"Error manipulating mouth: {e}")
+            
+        self.draw()
 
     def draw(self):
         self.screen.fill((240, 240, 240))
@@ -75,24 +89,27 @@ class PygameHeadAnimation:
 
 class TalkingHead:
     def __init__(self, image_path, use_gpio=True):
-        self.tts = TextToSpeech(rate=200)
+        self.tts = ElevenLabsTTS()
         self.running = True
 
+        self.use_gpio = use_gpio
         if use_gpio:
+            print("Using GPIO for head control")
+            from robot.mouth_controllers import HeadController
             self.head = HeadController()
         else:
-            self.head = PygameHeadAnimation(image_path)
+            self.use_pygame = True
+            self.head = PygameHead(image_path)
 
     def say(self, text):
         cleaned_text = re.sub(r'[^a-zA-Z0-9\s.,!?\'’\""]', ' ', text)
         self.tts.speak(cleaned_text)
 
     def run(self):
-        is_pygame = isinstance(self.head, PygameHeadAnimation)
-        clock = pygame.time.Clock() if is_pygame else None
+        clock = pygame.time.Clock() if self.use_pygame else None
 
         while self.running:
-            if is_pygame:
+            if self.use_pygame:
                 for event in pygame.event.get():
                     if event.type == pygame.QUIT or (event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE):
                         self.running = False
@@ -113,6 +130,6 @@ if __name__ == "__main__":
     parser.add_argument("--image_path", type=str, default="head.webp")
     args = parser.parse_args()
 
-    talking_head = TalkingHead(args.image_path)
+    talking_head = TalkingHead(args.image_path, use_gpio=False)  # Set use_gpio=True if using GPIO
     talking_head.say("Hello there! I'm alive!")
     talking_head.run()
