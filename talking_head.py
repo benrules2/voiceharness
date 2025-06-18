@@ -2,6 +2,7 @@ import pygame
 import time
 import os
 import re 
+from enum import StrEnum
 import json
 import numpy as np
 from text_to_speech import TextToSpeech
@@ -86,10 +87,26 @@ class PygameHead:
         self.screen.blit(self.image, (self.image_x, self.image_y))
         pygame.display.flip()
 
+class TTSType(StrEnum):
+    LOCAL = "local"
+    ELEVEN_LABS = "eleven_labs"
+    F5_TTS = "f5_tts"
 
 class TalkingHead:
-    def __init__(self, image_path, use_gpio=True):
-        self.tts = ElevenLabsTTS()
+    def __init__(self, image_path, use_gpio=True, tts=TTSType.LOCAL):
+
+        if tts == TTSType.LOCAL:
+            self.tts = TextToSpeech()
+        elif tts == TTSType.ELEVEN_LABS:
+            self.tts = ElevenLabsTTS()
+        elif tts == TTSType.F5_TTS:
+            from tts.f5_tts import F5TTSGenerator
+            self.tts = F5TTSGenerator(
+                quantization_bits=4,
+                ref_audio_path="tts/jeff.wav",
+                ref_audio_text="alright siri, tell me about exile island. Did you find any time looking for the hidden immunity idle?"
+                )
+
         self.running = True
 
         self.use_gpio = use_gpio
@@ -114,8 +131,8 @@ class TalkingHead:
                     if event.type == pygame.QUIT or (event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE):
                         self.running = False
 
-            
-            self.head.move(self.tts.speaking)
+            speaking = not self.tts.completed_speaking()
+            self.head.move(speaking)
 
             if clock:
                 clock.tick(30)

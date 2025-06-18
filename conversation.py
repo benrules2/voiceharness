@@ -11,9 +11,15 @@ import threading
 import time
 
 class Conversation:
-    def __init__(self, audio_device=None, image_path=constants.JEFF_IMAGE, use_gpio=True, prompt=constants.JEFF_PROMPT):
+    def __init__(
+            self,
+            audio_device=None,
+            image_path=constants.JEFF_IMAGE,
+            use_gpio=True,
+            prompt=constants.JEFF_PROMPT,
+            tts_type="local"):
         self.listener = Listener(device=audio_device, model="en-us")
-        self.talking_head = TalkingHead(image_path=image_path, use_gpio=use_gpio)  # Initialize TalkingHead
+        self.talking_head = TalkingHead(image_path=image_path, use_gpio=use_gpio, tts=tts_type)  # Initialize TalkingHead
         self.processor = ChatBotProcessor(
             initial_prompt=prompt
         )
@@ -25,7 +31,7 @@ class Conversation:
         print("Processor Status: ", self.processor.processing)
 
 
-        if self.talking_head.tts.speaking or self.processor.processing:
+        if not self.talking_head.tts.completed_speaking() or self.processor.processing:
             print("Currently processing a request or TTS is active. Please wait...")
             time.sleep(0.1)
             return
@@ -79,7 +85,7 @@ if __name__ == "__main__":
     args.add_argument("--select_device", default=False, action="store_true",)
     args.add_argument("--use_gpio", default=False, action="store_true",)
     args.add_argument("--character", default="jeff")
-    
+    args.add_argument("--tts", default="local")
 
     args = args.parse_args()
     
@@ -93,7 +99,7 @@ if __name__ == "__main__":
     device = args.device
     if args.select_device:
         device = select_input_device()
-    conversation = Conversation(audio_device=device, use_gpio=args.use_gpio, prompt=prompt, image_path=image)
+    conversation = Conversation(audio_device=device, use_gpio=args.use_gpio, prompt=prompt, image_path=image, tts_type=args.tts)
 
     # Start conversation.start() in a separate thread
     conversation_thread = threading.Thread(target=conversation.start)
