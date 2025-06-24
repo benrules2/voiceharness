@@ -108,7 +108,7 @@ class F5TTSGenerator:
         quantization_bits: Optional[int],
         ref_audio_path: Optional[str],
         ref_audio_text: Optional[str],
-        steps = 8,
+        steps = 10,
         method = "euler",
         cfg_strength = 1.5,
         sway = -1.0,
@@ -183,7 +183,7 @@ class F5TTSGenerator:
             wave = wave[self.ref_audio.shape[0]:]
             mx.eval(wave)
             self.audio.queue_audio(np.asarray(wave))
-            print(f"[GPU] ✅ Done: “{text}”")
+            print(f"[GPU] ✅ Done")
             with self.active_lock: self.active_jobs -= 1
 
             if self.completed_speaking():
@@ -218,7 +218,7 @@ def main():
     ap.add_argument("--text")
     ap.add_argument("--steps", type=int, default=8)
     ap.add_argument("--method", choices=["euler", "midpoint", "rk4"], default="rk4")
-    ap.add_argument("--cfg",   type=float, default=1.5)
+    ap.add_argument("--cfg",   type=float, default=1.2)
     ap.add_argument("--sway",  type=float, default=-1.0)
     ap.add_argument("--speed", type=float, default=1.0)
     ap.add_argument("--seed",  type=int)
@@ -230,6 +230,7 @@ def main():
     tts = F5TTSGenerator(
         model_name=args.model, quantization_bits=args.q,
         ref_audio_path=args.ref_audio, ref_audio_text=args.ref_text,
+        steps=args.steps, method=args.method, speed=args.speed,
     )
 
     try:
@@ -238,10 +239,7 @@ def main():
         while args.text:
             time_start = datetime.now()
             tts.speak(
-                args.text,
-                steps=args.steps, method=args.method,
-                cfg=args.cfg, sway=args.sway,
-                speed=args.speed, seed=args.seed,
+                args.text
             )
             while not tts.completed_speaking():
                 time.sleep(0.1)

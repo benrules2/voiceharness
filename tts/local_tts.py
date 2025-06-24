@@ -5,6 +5,7 @@ import time
 import subprocess
 import platform
 
+
 class TextToSpeech:
     def __init__(self, voice_id=None, rate=200):
         self.text_queue = queue.Queue()

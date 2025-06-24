@@ -12,7 +12,7 @@ class EyePosition(int, Enum):
     BLINK = 90
     SHOCKED = 179
 
-class HeadController:
+class RobotHead:
     def __init__(
         self,
         mouth_pin=MOUTH_PIN,
@@ -117,7 +117,7 @@ class HeadController:
         self.pi.stop()
 
 def _set_servos(mouth_angle, eye_angle):
-    controller = HeadController()
+    controller = RobotHead()
     controller._set_servo(MOUTH_PIN, mouth_angle)
     controller._set_servo(EYES_PIN, eye_angle)
 
@@ -133,7 +133,7 @@ def main():
         eye_angle = args.set_eyes if args.set_eyes is not None else 0
         _set_servos(mouth_angle, eye_angle)
     elif args.run:
-        controller = HeadController()
+        controller = RobotHead()
         try:
             while True:
                 speaking = (time.time() % 4) < 2
