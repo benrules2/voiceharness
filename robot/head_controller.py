@@ -46,7 +46,7 @@ class HeadController:
             pygame.quit()
 
 if __name__ == "__main__":
-    ttsparser = argparse.ArgumentParser(description="Control the robot's head.")
+    parser = argparse.ArgumentParser(description="Control the robot's head.")
     parser.add_argument("--use_gpio", action="store_true", help="Use GPIO for head control")
     parser.add_argument("--use_pygame", action="store_true", help="Use Pygame for head control")
     parser.add_argument("--image_path", type=str, default="head.webp", help="Path to the head image (if using Pygame)")
