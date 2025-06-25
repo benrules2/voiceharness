@@ -11,6 +11,7 @@ class HeadController:
             from robot.pygame_head import PygameHead
             head = PygameHead(image_path)
         else:
+            self.use_pygame = False
             from robot.gpio_head import RobotHead
             head = RobotHead()
         self.head = head
