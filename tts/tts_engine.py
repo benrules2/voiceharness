@@ -56,6 +56,12 @@ class TTSEngine:
         Return True if the current utterance has finished playing.
         """
         return self._engine.completed_speaking()
+    
+    def speaking(self) -> bool:
+        """
+        Return True if the TTS engine is currently speaking.
+        """
+        return not self._engine.completed_speaking()
 
     def cleanup(self):
         """

@@ -2,6 +2,12 @@ import pygame
 import time
 import os
 import re 
+import constants
+import threading
+
+from speech_to_text import select_input_device
+from conversation import Conversation
+
 from enum import StrEnum
 
 from tts.local_tts import TextToSpeech
@@ -9,7 +15,7 @@ from tts.eleven_labs import ElevenLabsTTS  # Assuming this is the correct import
 from robot.pygame_head import PygameHead
 
 from tts.tts_engine import TTSEngine
-from tts.sound_device_monitor import OutputMonitor
+from robot.sound_device_monitor import OutputMonitor
 
 
 class TTSType(StrEnum):
@@ -18,12 +24,13 @@ class TTSType(StrEnum):
     F5_TTS = "f5_tts"
 
 class TalkingHead:
-    def __init__(self, image_path, use_gpio=True, tts=TTSType.LOCAL):
+    def __init__(self, image_path="head.webp", use_gpio=True, tts_engine=TTSEngine(tts_type=TTSType.LOCAL)):
 
-        self.tts = TTSEngine(tts_type=tts)  # Initialize TTS engine
+        self.tts = tts_engine  # Initialize TTS engine
         self.running = True
 
         self.use_gpio = use_gpio
+
         if use_gpio:
             print("Using GPIO for head control")
             from robot.gpio_head import RobotHead
@@ -69,43 +76,52 @@ class TalkingHead:
             else:
                 time.sleep(0.1)  # ~30 FPS fallback pacing for servo control
 
+def start_conversation_thread(character, tts):
+    if character.lower() == "jeff":
+        prompt = constants.JEFF_PROMPT
+        image = constants.JEFF_IMAGE
+    elif args.character.lower() == "lizard":
+        prompt = constants.LIZARD_PROMPT
+        image = constants.LIZARD_IMAGE
+
+    device = args.device
+    if args.select_device:
+        device = select_input_device()
+    conversation = Conversation(audio_device=device, prompt=prompt, tts_type=tts)
+
+        # Start conversation.start() in a separate thread
+    conversation_thread = threading.Thread(target=conversation.start)
+    conversation_thread.start()
+
+    return conversation_thread 
 
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument("--image_path", type=str, default="head.webp")
-    parser.add_argument("--use_gpio", action="store_true", help="Use GPIO for head control")
     parser.add_argument("--tts", type=str, choices=[t.value for t in TTSType], default=TTSType.F5_TTS,
                         help="Select TTS type: local, eleven_labs, f5_tts")
     parser.add_argument("--text", type=str, default=None)
     parser.add_argument("--textfile", type=str, default=None)
+    parser.add_argument("--device", default=None)
+    parser.add_argument("--select_device", default=False, action="store_true",)
+    parser.add_argument("--use_gpio", default=False, action="store_true",)
+    parser.add_argument("--character", default="jeff")
+    parser.add_argument("--tts", default="local")
+    parser.add_argument("--animated", action="store_true", help="Run with pygame head")
+    parser.add_argument("--robot", action="store_true", help="Run with pygame head")
+
+
+
     args = parser.parse_args()
+ 
+    convo = start_conversation_thread(character=args.character, prompt=constants.JEFF_PROMPT, tts=args.tts)
+    
+    tts_engine = TTSEngine(tts_type=TTSType(args.tts))
 
-    talking_head = TalkingHead(args.image_path, use_gpio=args.use_gpio, tts=args.tts)  # Set use_gpio=True if using GPIO
-    if args.text:
-        talking_head.say(args.text)
+    if args.robot:
+        talking_head = TalkingHead(use_gpio=True, tts_engine=tts_engine)
+    
 
-    if args.textfile:
-        if os.path.exists(args.textfile):
-            with open(args.textfile, 'r') as f:
-                text = f.read().strip()
-                talking_head.say(text)
-        else:
-            print(f"Text file {args.textfile} does not exist. Using default text.")
 
-    if not args.text and not args.textfile:
-        talking_head.say("You didn't tell me what to say!")
-
-    talking_head.run()
-
-    while True:
-        try:
-            if talking_head.tts.completed_speaking():
-                print("Speaking completed, exiting...")
-                talking_head.running = False
-                break
-            time.sleep(1)
-        except KeyboardInterrupt:
-            print("Exiting...")
-            talking_head.running = False
-            break
+  

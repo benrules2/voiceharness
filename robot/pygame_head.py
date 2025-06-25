@@ -82,3 +82,6 @@ class PygameHead:
         self.screen.fill((240, 240, 240))
         self.screen.blit(self.image, (self.image_x, self.image_y))
         pygame.display.flip()
+
+    def cleanup(self):
+        pygame.quit()

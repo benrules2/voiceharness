@@ -1,7 +1,7 @@
 import argparse
 
 from speech_to_text import Listener, select_input_device
-from talking_head import TalkingHead  # Import the TalkingHead class
+from robot.head_controller import HeadController  # Import the TalkingHead class
 from process_request import ChatBotProcessor
 from tts.tts_engine import TTSEngine  
 import random
@@ -27,14 +27,11 @@ class Conversation:
     def __init__(
             self,
             audio_device=None,
-            image_path=constants.JEFF_IMAGE,
-            use_gpio=True,
             prompt=constants.JEFF_PROMPT,
             tts_type="local"):
         self.listener = Listener(device=audio_device, model="en-us")
         self.tts_engine = TTSEngine(tts_type=tts_type)  # Initialize TTS engine
 
-        # self.talking_head = TalkingHead(image_path=image_path, use_gpio=use_gpio, tts=tts_type)  # Initialize TalkingHead
         self.processor = ChatBotProcessor(
             initial_prompt=prompt
         )
@@ -69,7 +66,7 @@ class Conversation:
                 if len(word) > 20 or re.search(r"[.!?;:]", word):
                     output = " ".join(words[: i + 1])
                     with self.lock_tts:
-                        self.talking_head.say(output)  # Use talking_head.say
+                        self.tts_engine.speak(output)  # Use talking_head.say
                     buffer = " ".join(words[i + 1 :])
 
         if preload:
@@ -105,6 +102,7 @@ if __name__ == "__main__":
     args.add_argument("--use_gpio", default=False, action="store_true",)
     args.add_argument("--character", default="jeff")
     args.add_argument("--tts", default="local")
+    args.add_argument("--headless", default=False, action="store_true", help="Run without GUI (no talking head)")
 
     args = args.parse_args()
     
@@ -118,13 +116,16 @@ if __name__ == "__main__":
     device = args.device
     if args.select_device:
         device = select_input_device()
-    conversation = Conversation(audio_device=device, use_gpio=args.use_gpio, prompt=prompt, image_path=image, tts_type=args.tts)
+    conversation = Conversation(audio_device=device, prompt=prompt, tts_type=args.tts)
 
     # Start conversation.start() in a separate thread
     conversation_thread = threading.Thread(target=conversation.start)
     conversation_thread.start()
 
-    try:
-        conversation.talking_head.run()
-    finally:
-        conversation.talking_head.tts.cleanup()
+    if not args.headless:
+        talking_head = HeadController(gpio=args.use_gpio)
+        try:
+            talking_head.run()
+        except KeyboardInterrupt:
+            print("Stopping head controller...")
+            talking_head.cleanup()
