@@ -4,7 +4,7 @@ import pygame
 
 
 class HeadController:
-    def __init__(self, gpio=False, threshold=0.05, image_path="head.webp"):
+    def __init__(self, gpio=False, threshold=0.05, image_path="head.webp", loopback_device=None):
         self.gpio = gpio
         if not gpio:
             self.use_pygame = True
@@ -16,7 +16,7 @@ class HeadController:
             head = RobotHead()
         self.head = head
         self.threshold = threshold
-        self.output_monitor = OutputMonitor()
+        self.output_monitor = OutputMonitor(device=loopback_device)
         self.running = False
 
     def run(self):
@@ -32,6 +32,7 @@ class HeadController:
             volume_level = self.output_monitor.sound_level()
 
             speaking = volume_level > self.threshold  # Adjust threshold as needed
+
             self.head.move(speaking)
 
             if self.use_pygame:
@@ -45,15 +46,17 @@ class HeadController:
             pygame.quit()
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Control the robot's head.")
+    ttsparser = argparse.ArgumentParser(description="Control the robot's head.")
     parser.add_argument("--use_gpio", action="store_true", help="Use GPIO for head control")
     parser.add_argument("--use_pygame", action="store_true", help="Use Pygame for head control")
     parser.add_argument("--image_path", type=str, default="head.webp", help="Path to the head image (if using Pygame)")
     parser.add_argument("--threshold", type=float, default=0.05, help="Sound level threshold to determine if speaking")
+    parser.add_argument("--loopback_device", type=int, default=None, help="Device to monitor loopback")
+
 
     args = parser.parse_args()
 
-    head_controller = HeadController(gpio=args.use_gpio, threshold=args.threshold)
+    head_controller = HeadController(gpio=args.use_gpio, threshold=args.threshold, loopback_device=args.loopback_device)
     head_controller.run()
 
 

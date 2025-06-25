@@ -6,10 +6,14 @@ from threading import Thread
 
 
 class OutputMonitor:
-    def __init__(self, blocksize=2048, rate=44100, update_interval=0.2):
+    def __init__(self, blocksize=2048, rate=44100, update_interval=0.2, device=None):
+        if not device:
+            self.device = self._find_monitor_device()
+        else:
+            self.device = device 
+
         self.blocksize = blocksize
         self.rate = rate
-        self.device = self._find_monitor_device()
         self.update_interval = update_interval
         self.last_level = 0
         self.running = False
