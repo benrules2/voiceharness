@@ -9,6 +9,8 @@ import mlx.core as mx
 import numpy as np
 import sounddevice as sd
 import soundfile as sf
+import hashlib
+from pathlib import Path
 
 from f5_tts_mlx.cfm import F5TTS
 from f5_tts_mlx.utils import convert_char_to_pinyin
@@ -113,18 +115,30 @@ class F5TTSGenerator:
         sway=-1.0,
         speed=1.0,
         model_name: str = "lucasnewman/f5-tts-mlx",
+        cache_dir: Optional[str] = None,
     ):
+        # generation parameters
         self.steps = steps
         self.method = method
         self.cfg_strength = cfg_strength
         self.sway = sway
         self.speed = speed
 
-        print(f"🧠 Loading model “{model_name}” (q={quantization_bits})")
+        # model info
+        self.model_name = model_name
+        self.quantization_bits = quantization_bits
+
+        print(f"🧠 Loading model '{model_name}' (q={quantization_bits})")
         self.f5tts = F5TTS.from_pretrained(model_name, quantization_bits=quantization_bits)
         if quantization_bits is None:
             self._cast_state_fp16(self.f5tts.state)
 
+        # prepare cache directory
+        base = Path(cache_dir) if cache_dir else Path.home() / ".cache" / "f5tts"
+        self.cache_dir = base
+        self.cache_dir.mkdir(parents=True, exist_ok=True)
+
+        # audio playback
         self.audio = AudioPlayer()
         self.audio._ensure_stream()
         self._load_reference_audio(ref_audio_path, ref_audio_text)
@@ -175,17 +189,47 @@ class F5TTSGenerator:
             if text == "STOP":
                 break
 
-            with self.active_lock:
-                print(f"[GPU] ⏳ Generating & playing: “{text}”")
-            wave, _ = self._do_sample(text, **p)
-            wave = wave[self.ref_audio.shape[0]:]
-            mx.eval(wave)
-            samples = np.asarray(wave)
+            # compute cache key and path
+            key = self._cache_key(text, p)
+            cache_path = self.cache_dir / f"{key}.npy"
+
+            if cache_path.exists():
+                samples = np.load(cache_path)
+                print(f"🔄 Cache hit for: '{text}' -> {cache_path.name}")
+            else:
+                with self.active_lock:
+                    print(f"[GPU] ⏳ Generating & caching: '{text}'")
+                wave, _ = self._do_sample(text, **p)
+                wave = wave[self.ref_audio.shape[0]:]
+                mx.eval(wave)
+                samples = np.asarray(wave)
+                # save to disk cache
+                np.save(cache_path, samples)
+
             # playback
             self.audio.queue_audio(samples)
+
             # accumulate for saving if requested
             if self._save_buffer is not None:
                 self._save_buffer.append(samples)
+
+    def _cache_key(self, text: str, params: dict) -> str:
+        """
+        Create a unique hash key based on text, model, ref_text, and generation params.
+        """
+        hasher = hashlib.sha256()
+        # core identity
+        hasher.update(self.model_name.encode('utf-8'))
+        hasher.update(str(self.quantization_bits).encode('utf-8'))
+        hasher.update(self.ref_audio_text.encode('utf-8'))
+        hasher.update(str(self.steps).encode('utf-8'))
+
+        # sentence and params
+        hasher.update(text.encode('utf-8'))
+        for k in sorted(params.keys()):
+            hasher.update(str(k).encode('utf-8'))
+            hasher.update(str(params[k]).encode('utf-8'))
+        return hasher.hexdigest()
 
     def _do_sample(self, text, steps, method, cfg_strength, sway, speed, seed):
         prompt = convert_char_to_pinyin([self.ref_audio_text + " " + text])
@@ -204,6 +248,7 @@ class F5TTSGenerator:
         """
         Async streaming TTS to AudioPlayer.
         If `output` is provided, buffers the generated samples and writes once done.
+        Uses on-disk cache to reuse previously-generated sentences.
         """
         # prepare save buffer if needed
         if output:
@@ -213,21 +258,20 @@ class F5TTSGenerator:
         # enqueue sentences
         self.speaking = True
         for s in split_sentences(text):
-            self.task_queue.put((s, dict(
+            params = dict(
                 steps=self.steps,
                 method=self.method,
                 cfg_strength=self.cfg_strength,
                 sway=self.sway,
                 speed=self.speed,
                 seed=seed,
-            )))
+            )
+            self.task_queue.put((s, params))
 
         # if saving, block until done then flush buffer
         if self._save_buffer is not None:
-            # wait for playback completion
             while not self.completed_speaking():
                 time.sleep(0.1)
-            # concatenate and save
             all_samples = np.concatenate(self._save_buffer, axis=0)
             sf.write(self._output_path, all_samples, samplerate=SAMPLE_RATE)
             print(f"💾 Saved WAV to {self._output_path}")

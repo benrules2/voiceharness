@@ -28,8 +28,9 @@ class Conversation:
             self,
             audio_device=None,
             prompt=constants.JEFF_PROMPT,
-            tts_type="local"):
-        self.listener = Listener(device=audio_device, model="en-us")
+            tts_type="local",
+            asr_engine="whisper"):
+        self.listener = Listener(device=audio_device, model="en-us", engine=asr_engine)  # Initialize listener with ASR engine
         self.tts_engine = TTSEngine(tts_type=tts_type)  # Initialize TTS engine
 
         self.processor = ChatBotProcessor(
@@ -44,7 +45,7 @@ class Conversation:
 
         if not self.tts_engine.completed_speaking() or self.processor.processing:
             print("Currently processing a request or TTS is active. Please wait...")
-            time.sleep(0.1)
+            time.sleep(1.0)
             return
             
         print("Handling new request...")
@@ -105,6 +106,7 @@ if __name__ == "__main__":
     args.add_argument("--headless", default=False, action="store_true", help="Run without GUI (no talking head)")
     args.add_argument("--text", default=None, help="Text to process instead of listening to audio")
     args.add_argument("--say", default=None, help="Text to say immediately without processing")
+    args.add_argument("--asr", default="whisper", choices=["whisper", "vosk"], help="ASR model to use")
 
     args = args.parse_args()
     
@@ -119,16 +121,6 @@ if __name__ == "__main__":
     if args.select_device:
         device = select_input_device()
     conversation = Conversation(audio_device=device, prompt=prompt, tts_type=args.tts)
-
-    # Start conversation.start() in a separate thread
-
-    if not args.headless:
-        talking_head = HeadController(gpio=args.use_gpio)
-        try:
-            talking_head.run()
-        except KeyboardInterrupt:
-            print("Stopping head controller...")
-            talking_head.cleanup()
     
     if args.say:
         print(f"Saying: {args.say}")
@@ -144,5 +136,14 @@ if __name__ == "__main__":
         print(f"Processing text: {args.text}")
         conversation.run_request_processing_engine(args.text, preload=False)
     else:
+        print("Starting conversation thread...")
         conversation_thread = threading.Thread(target=conversation.start)
         conversation_thread.start()
+    
+    if not args.headless:
+        talking_head = HeadController(gpio=args.use_gpio)
+        try:
+            talking_head.run()
+        except KeyboardInterrupt:
+            print("Stopping head controller...")
+            talking_head.cleanup()
