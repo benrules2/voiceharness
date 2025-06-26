@@ -78,7 +78,7 @@ class Conversation:
         while self.processor.processing or not self.tts_engine.completed_speaking():
             if buffer:
                 with self.lock_tts:
-                    self.talking_head.say(buffer) 
+                    self.tts_engine.speak(buffer) 
             time.sleep(0.2)
         
         print("****** PROCESSING COMPLETE TTS DONE ******")
@@ -103,6 +103,8 @@ if __name__ == "__main__":
     args.add_argument("--character", default="jeff")
     args.add_argument("--tts", default="local")
     args.add_argument("--headless", default=False, action="store_true", help="Run without GUI (no talking head)")
+    args.add_argument("--text", default=None, help="Text to process instead of listening to audio")
+    args.add_argument("--say", default=None, help="Text to say immediately without processing")
 
     args = args.parse_args()
     
@@ -119,8 +121,6 @@ if __name__ == "__main__":
     conversation = Conversation(audio_device=device, prompt=prompt, tts_type=args.tts)
 
     # Start conversation.start() in a separate thread
-    conversation_thread = threading.Thread(target=conversation.start)
-    conversation_thread.start()
 
     if not args.headless:
         talking_head = HeadController(gpio=args.use_gpio)
@@ -129,3 +129,20 @@ if __name__ == "__main__":
         except KeyboardInterrupt:
             print("Stopping head controller...")
             talking_head.cleanup()
+    
+    if args.say:
+        print(f"Saying: {args.say}")
+        with conversation.lock_tts:
+            conversation.tts_engine.speak(args.say)
+            while not conversation.tts_engine.completed_speaking():
+                time.sleep(10)
+
+            print("Done speaking.")
+            conversation.tts_engine.cleanup()
+
+    elif args.text:
+        print(f"Processing text: {args.text}")
+        conversation.run_request_processing_engine(args.text, preload=False)
+    else:
+        conversation_thread = threading.Thread(target=conversation.start)
+        conversation_thread.start()

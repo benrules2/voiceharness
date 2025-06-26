@@ -21,7 +21,7 @@ mx.set_default_device(mx.gpu)
 def split_sentences(text: str):
     parts = re.split(r"([.!?;:])", text)
     if len(parts) <= 1:
-        return [text.strip()] if text.strip() and len(text.split()) >= 5 else []
+        return [text.strip()] if text.strip() else []
     
     sentences = [
         parts[i] + parts[i + 1] for i in range(0, len(parts) - 1, 2)
@@ -101,18 +101,17 @@ class AudioPlayer:
 
 
 # ───────────────────────  F5-TTS WRAPPER  ────────────────────── #
-
 class F5TTSGenerator:
     def __init__(
         self,
         quantization_bits: Optional[int],
         ref_audio_path: Optional[str],
         ref_audio_text: Optional[str],
-        steps = 10,
-        method = "euler",
-        cfg_strength = 1.5,
-        sway = -1.0,
-        speed = 1.0,
+        steps=10,
+        method="euler",
+        cfg_strength=1.5,
+        sway=-1.0,
+        speed=1.0,
         model_name: str = "lucasnewman/f5-tts-mlx",
     ):
         self.steps = steps
@@ -120,19 +119,24 @@ class F5TTSGenerator:
         self.cfg_strength = cfg_strength
         self.sway = sway
         self.speed = speed
+
         print(f"🧠 Loading model “{model_name}” (q={quantization_bits})")
         self.f5tts = F5TTS.from_pretrained(model_name, quantization_bits=quantization_bits)
-
-        if quantization_bits is None:                      # fp16 cast
+        if quantization_bits is None:
             self._cast_state_fp16(self.f5tts.state)
 
-        self.audio = AudioPlayer(); self.audio._ensure_stream()
+        self.audio = AudioPlayer()
+        self.audio._ensure_stream()
         self._load_reference_audio(ref_audio_path, ref_audio_text)
 
-        self.task_queue  = queue.Queue()
-        self.active_jobs = 0
+        # async playback queue
+        self.task_queue = queue.Queue()
         self.active_lock = Lock()
-        self.gpu_alive   = True
+        self.gpu_alive = True
+        # buffer for saving
+        self._save_buffer: Optional[list[np.ndarray]] = None
+        self._output_path: Optional[str] = None
+
         threading.Thread(target=self._gpu_worker, daemon=True).start()
         self.speaking = False
 
@@ -148,12 +152,14 @@ class F5TTSGenerator:
         if path is None:
             wav = pkgutil.get_data("f5_tts_mlx", "tests/test_en_1_ref_short.wav")
             tmp = "/tmp/_f5_ref.wav"
-            with open(tmp, "wb") as f: f.write(wav)
+            with open(tmp, "wb") as f:
+                f.write(wav)
             audio, _ = sf.read(tmp)
             text = "Some call me nature, others call me mother nature."
         else:
             audio, _ = sf.read(path)
-        self.ref_audio      = mx.array(audio)
+
+        self.ref_audio = mx.array(audio)
         self.ref_audio_text = text or ""
         rms = mx.sqrt(mx.mean(mx.square(self.ref_audio)))
         if rms < TARGET_RMS:
@@ -166,49 +172,80 @@ class F5TTSGenerator:
                 text, p = self.task_queue.get(timeout=1.0)
             except queue.Empty:
                 continue
-            if text == "STOP": break
+            if text == "STOP":
+                break
 
-            with self.active_lock: self.active_jobs += 1
-            print(f"[GPU] ⏳ Generating: “{text}”")
-
-            seed = p["seed"] or 0
-            prompt = convert_char_to_pinyin([self.ref_audio_text + " " + text])
-            wave, _ = self.f5tts.sample(
-                mx.expand_dims(self.ref_audio, 0),
-                text=prompt,
-                steps=p["steps"], method=p["method"], speed=p["speed"],
-                cfg_strength=p["cfg_strength"], sway_sampling_coef=p["sway"],
-                seed=seed,
-            )
+            with self.active_lock:
+                print(f"[GPU] ⏳ Generating & playing: “{text}”")
+            wave, _ = self._do_sample(text, **p)
             wave = wave[self.ref_audio.shape[0]:]
             mx.eval(wave)
-            self.audio.queue_audio(np.asarray(wave))
-            print(f"[GPU] ✅ Done")
-            with self.active_lock: self.active_jobs -= 1
+            samples = np.asarray(wave)
+            # playback
+            self.audio.queue_audio(samples)
+            # accumulate for saving if requested
+            if self._save_buffer is not None:
+                self._save_buffer.append(samples)
 
-            if self.completed_speaking():
-                self.speaking = False
+    def _do_sample(self, text, steps, method, cfg_strength, sway, speed, seed):
+        prompt = convert_char_to_pinyin([self.ref_audio_text + " " + text])
+        return self.f5tts.sample(
+            mx.expand_dims(self.ref_audio, 0),
+            text=prompt,
+            steps=steps,
+            method=method,
+            speed=speed,
+            cfg_strength=cfg_strength,
+            sway_sampling_coef=sway,
+            seed=seed,
+        )
 
-    def speak(self, text, seed=1):
+    def speak(self, text: str, seed: int = 1, output: Optional[str] = None):
+        """
+        Async streaming TTS to AudioPlayer.
+        If `output` is provided, buffers the generated samples and writes once done.
+        """
+        # prepare save buffer if needed
+        if output:
+            self._output_path = output if output.lower().endswith('.wav') else output + '.wav'
+            self._save_buffer = []
+
+        # enqueue sentences
         self.speaking = True
         for s in split_sentences(text):
             self.task_queue.put((s, dict(
-                steps=self.steps, method=self.method, cfg_strength=self.cfg_strength,
-                sway=self.sway, speed=self.speed, seed=seed
+                steps=self.steps,
+                method=self.method,
+                cfg_strength=self.cfg_strength,
+                sway=self.sway,
+                speed=self.speed,
+                seed=seed,
             )))
 
-    def completed_speaking(self):
+        # if saving, block until done then flush buffer
+        if self._save_buffer is not None:
+            # wait for playback completion
+            while not self.completed_speaking():
+                time.sleep(0.1)
+            # concatenate and save
+            all_samples = np.concatenate(self._save_buffer, axis=0)
+            sf.write(self._output_path, all_samples, samplerate=SAMPLE_RATE)
+            print(f"💾 Saved WAV to {self._output_path}")
+            # reset
+            self._save_buffer = None
+            self._output_path = None
+
+    def completed_speaking(self) -> bool:
         latency = self.audio.buffer_size / self.audio.sample_rate
-        quiet   = time.monotonic() - self.audio.last_audio_ts >= latency
+        quiet = time.monotonic() - self.audio.last_audio_ts >= latency
         with self.active_lock:
-            return quiet and not self.audio.audio_buffer and self.task_queue.empty() and self.active_jobs == 0
+            return quiet and not self.audio.audio_buffer and self.task_queue.empty()
 
     def cleanup(self):
         self.gpu_alive = False
         self.task_queue.put(("STOP", None))
         self.audio.stop()
         print("🧹 Cleanup complete")
-
 
 # ─────────────────────────  CLI  ───────────────────────── #
 
@@ -225,6 +262,8 @@ def main():
     ap.add_argument("--q",     type=int, help="weight-quant bits (4,8)")
     ap.add_argument("--ref-audio", help="path to reference WAV")
     ap.add_argument("--ref-text",  help="text matching the reference audio")
+    ap.add_argument("--output", help="save full waveform to this WAV file", default=None)
+
     args = ap.parse_args()
 
     tts = F5TTSGenerator(
@@ -238,9 +277,7 @@ def main():
             args.text = input("> ").strip()
         while args.text:
             time_start = datetime.now()
-            tts.speak(
-                args.text
-            )
+            tts.speak(args.text, output=args.output)
             while not tts.completed_speaking():
                 time.sleep(0.1)
             elapsed = (datetime.now() - time_start).total_seconds()
