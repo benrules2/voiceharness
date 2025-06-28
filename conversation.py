@@ -4,6 +4,7 @@ from speech_to_text import Listener, select_input_device
 from robot.head_controller import HeadController  # Import the TalkingHead class
 from process_request import ChatBotProcessor
 from tts.tts_engine import TTSEngine  
+from robot.sound_device_monitor import OutputMonitor
 import random
 
 import constants 
@@ -21,6 +22,8 @@ def _prefix_phrase():
         "Hmm, that's an interesting question...",
         "Give me a second to consider that...",
         "Let me ponder that for a moment..."
+        "thinking, thinking....",
+        "I hear you. Let's see...",
     ])
 
 class Conversation:
@@ -29,9 +32,15 @@ class Conversation:
             audio_device=None,
             prompt=constants.JEFF_PROMPT,
             tts_type="local",
-            asr_engine="whisper"):
+            asr_engine="whisper",
+            tts_engine=None
+        ):
+        
         self.listener = Listener(device=audio_device, model="en-us", engine=asr_engine)  # Initialize listener with ASR engine
-        self.tts_engine = TTSEngine(tts_type=tts_type)  # Initialize TTS engine
+
+        self.tts_engine = tts_engine
+        if tts_engine is None:
+            self.tts_engine = TTSEngine(tts_type=tts_type)  # Initialize TTS engine
 
         self.processor = ChatBotProcessor(
             initial_prompt=prompt
@@ -39,9 +48,11 @@ class Conversation:
         self.lock_tts = threading.Lock()
         self.proccessor_lock = threading.Lock()
 
+
     def process_request(self) -> str:
         print("TTS Speaking Status: ", self.tts_engine.speaking)
         print("Processor Status: ", self.processor.processing)
+        print("Sound Level: ", self.sound_monitor.sound_level())
 
         if not self.tts_engine.completed_speaking() or self.processor.processing:
             print("Currently processing a request or TTS is active. Please wait...")
@@ -110,17 +121,29 @@ if __name__ == "__main__":
 
     args = args.parse_args()
     
+    tts_engine = None 
+
     if args.character.lower() == "jeff":
         prompt = constants.JEFF_PROMPT
         image = constants.JEFF_IMAGE
     elif args.character.lower() == "lizard":
         prompt = constants.LIZARD_PROMPT
         image = constants.LIZARD_IMAGE
+    elif args.character.lower() == "ben":
+        prompt = constants.BEN_PROMPT
+        ref_audio = constants.BEN_REF_WAV
+        ref_audio_text = constants.BEN_REF_TEXT
+        image = constants.BEN_IMAGE
+        tts_engine = TTSEngine(
+            tts_type="f5_tts",
+            f5_ref_audio_path=constants.BEN_REF_WAV,
+            f5_ref_audio_text=constants.BEN_REF_TEXT
+        )
 
     device = args.device
     if args.select_device:
         device = select_input_device()
-    conversation = Conversation(audio_device=device, prompt=prompt, tts_type=args.tts)
+    conversation = Conversation(audio_device=device, prompt=prompt, tts_type=args.tts, tts_engine=tts_engine)
     
     if args.say:
         print(f"Saying: {args.say}")
@@ -141,7 +164,7 @@ if __name__ == "__main__":
         conversation_thread.start()
     
     if not args.headless:
-        talking_head = HeadController(gpio=args.use_gpio)
+        talking_head = HeadController(gpio=args.use_gpio, image_path=image)
         try:
             talking_head.run()
         except KeyboardInterrupt:

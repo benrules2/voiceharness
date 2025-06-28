@@ -9,6 +9,7 @@ class HeadController:
         if not gpio:
             self.use_pygame = True
             from robot.pygame_head import PygameHead
+            print("Starting Pygame Head Controller")
             head = PygameHead(image_path)
         else:
             self.use_pygame = False
@@ -22,6 +23,9 @@ class HeadController:
     def run(self):
         self.running = True
         self.output_monitor.start()
+
+        clock = pygame.time.Clock() if self.use_pygame else None
+
         while self.running:
             if not self.gpio:
                 for event in pygame.event.get():
@@ -37,6 +41,7 @@ class HeadController:
 
             if self.use_pygame:
                 pygame.time.delay(100)
+                clock.tick(30)
 
     def cleanup(self):
         self.running = False

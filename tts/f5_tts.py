@@ -1,5 +1,10 @@
-
-import argparse, pkgutil, queue, re, sys, threading, time
+import argparse
+import pkgutil
+import queue
+import re
+import sys
+import threading
+import time
 from datetime import datetime
 from collections import deque
 from threading import Event, Lock
@@ -16,7 +21,7 @@ from f5_tts_mlx.cfm import F5TTS
 from f5_tts_mlx.utils import convert_char_to_pinyin
 
 SAMPLE_RATE = 24_000
-TARGET_RMS   = 0.1
+TARGET_RMS = 0.1
 mx.set_default_device(mx.gpu)
 
 
@@ -24,12 +29,12 @@ def split_sentences(text: str):
     parts = re.split(r"([.!?;:])", text)
     if len(parts) <= 1:
         return [text.strip()] if text.strip() else []
-    
+
     sentences = [
         parts[i] + parts[i + 1] for i in range(0, len(parts) - 1, 2)
         if (parts[i] + parts[i + 1]).strip()
     ]
-    
+
     # Merge sentences until minimum length is reached
     merged_sentences = []
     current_sentence = ""
@@ -39,24 +44,23 @@ def split_sentences(text: str):
         else:
             merged_sentences.append(current_sentence.strip())
             current_sentence = sentence.strip()
-    
+
     if current_sentence.strip():
         merged_sentences.append(current_sentence.strip())
-    
+
     return merged_sentences
 
 
 # ─────────────────────────── AUDIO ─────────────────────────── #
-
 class AudioPlayer:
     def __init__(self, sample_rate=SAMPLE_RATE, buffer_size=4096):
-        self.sample_rate   = sample_rate
-        self.buffer_size   = buffer_size
-        self.audio_buffer  = deque()
-        self.buffer_lock   = Lock()
-        self.drain_event   = Event()
-        self.stream        = None
-        self.playing       = False
+        self.sample_rate = sample_rate
+        self.buffer_size = buffer_size
+        self.audio_buffer = deque()
+        self.buffer_lock = Lock()
+        self.drain_event = Event()
+        self.stream = None
+        self.playing = False
         self.last_audio_ts = time.monotonic()
 
     def _callback(self, outdata, frames, time_info, status):
@@ -65,7 +69,7 @@ class AudioPlayer:
                 n = min(frames, len(self.audio_buffer[0]))
                 chunk = self.audio_buffer[0][:n]
                 self.audio_buffer[0] = self.audio_buffer[0][n:]
-                if self.audio_buffer[0].size == 0: 
+                if self.audio_buffer[0].size == 0:
                     self.audio_buffer.popleft()
                     if not self.audio_buffer:
                         self.drain_event.set()
@@ -98,7 +102,8 @@ class AudioPlayer:
     def stop(self):
         self.drain_event.wait()
         if self.stream:
-            self.stream.stop(); self.stream.close()
+            self.stream.stop()
+            self.stream.close()
         self.playing = False
 
 
@@ -128,6 +133,10 @@ class F5TTSGenerator:
         self.model_name = model_name
         self.quantization_bits = quantization_bits
 
+        # for save logic
+        self._done_event = Event()
+        self._remaining = 0
+
         print(f"🧠 Loading model '{model_name}' (q={quantization_bits})")
         self.f5tts = F5TTS.from_pretrained(model_name, quantization_bits=quantization_bits)
         if quantization_bits is None:
@@ -147,6 +156,7 @@ class F5TTSGenerator:
         self.task_queue = queue.Queue()
         self.active_lock = Lock()
         self.gpu_alive = True
+
         # buffer for saving
         self._save_buffer: Optional[list[np.ndarray]] = None
         self._output_path: Optional[str] = None
@@ -212,23 +222,21 @@ class F5TTSGenerator:
             # accumulate for saving if requested
             if self._save_buffer is not None:
                 self._save_buffer.append(samples)
+                with self.active_lock:
+                    self._remaining -= 1
+                    if self._remaining == 0:
+                        self._done_event.set()
 
     def _cache_key(self, text: str, params: dict) -> str:
-        """
-        Create a unique hash key based on text, model, ref_text, and generation params.
-        """
         hasher = hashlib.sha256()
-        # core identity
-        hasher.update(self.model_name.encode('utf-8'))
-        hasher.update(str(self.quantization_bits).encode('utf-8'))
-        hasher.update(self.ref_audio_text.encode('utf-8'))
-        hasher.update(str(self.steps).encode('utf-8'))
-
-        # sentence and params
-        hasher.update(text.encode('utf-8'))
+        hasher.update(self.model_name.encode("utf-8"))
+        hasher.update(str(self.quantization_bits).encode("utf-8"))
+        hasher.update(self.ref_audio_text.encode("utf-8"))
+        hasher.update(str(self.steps).encode("utf-8"))
+        hasher.update(text.encode("utf-8"))
         for k in sorted(params.keys()):
-            hasher.update(str(k).encode('utf-8'))
-            hasher.update(str(params[k]).encode('utf-8'))
+            hasher.update(str(k).encode("utf-8"))
+            hasher.update(str(params[k]).encode("utf-8"))
         return hasher.hexdigest()
 
     def _do_sample(self, text, steps, method, cfg_strength, sway, speed, seed):
@@ -250,14 +258,16 @@ class F5TTSGenerator:
         If `output` is provided, buffers the generated samples and writes once done.
         Uses on-disk cache to reuse previously-generated sentences.
         """
-        # prepare save buffer if needed
+        sentences = split_sentences(text)
         if output:
-            self._output_path = output if output.lower().endswith('.wav') else output + '.wav'
+            # reset & set up our “all done” event
+            self._done_event.clear()
+            self._remaining = len(sentences)
             self._save_buffer = []
+            self._output_path = output if output.lower().endswith(".wav") else output + ".wav"
 
         # enqueue sentences
-        self.speaking = True
-        for s in split_sentences(text):
+        for s in sentences:
             params = dict(
                 steps=self.steps,
                 method=self.method,
@@ -268,13 +278,18 @@ class F5TTSGenerator:
             )
             self.task_queue.put((s, params))
 
-        # if saving, block until done then flush buffer
+        # if saving, block on both events, then flush buffer
         if self._save_buffer is not None:
-            while not self.completed_speaking():
-                time.sleep(0.1)
+            # 1) wait until GPU has appended every chunk
+            self._done_event.wait()
+            # 2) wait until playback is fully drained
+            self.audio.drain_event.wait()
+
+            # now write out
             all_samples = np.concatenate(self._save_buffer, axis=0)
-            sf.write(self._output_path, all_samples, samplerate=SAMPLE_RATE)
+            sf.write(self._output_path, all_samples, samplerate=self.audio.sample_rate)
             print(f"💾 Saved WAV to {self._output_path}")
+
             # reset
             self._save_buffer = None
             self._output_path = None
@@ -291,29 +306,33 @@ class F5TTSGenerator:
         self.audio.stop()
         print("🧹 Cleanup complete")
 
-# ─────────────────────────  CLI  ───────────────────────── #
 
+# ─────────────────────────  CLI  ───────────────────────── #
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--model", default="lucasnewman/f5-tts-mlx")
     ap.add_argument("--text")
     ap.add_argument("--steps", type=int, default=8)
     ap.add_argument("--method", choices=["euler", "midpoint", "rk4"], default="rk4")
-    ap.add_argument("--cfg",   type=float, default=1.2)
-    ap.add_argument("--sway",  type=float, default=-1.0)
+    ap.add_argument("--cfg", type=float, default=1.2)
+    ap.add_argument("--sway", type=float, default=-1.0)
     ap.add_argument("--speed", type=float, default=1.0)
-    ap.add_argument("--seed",  type=int)
-    ap.add_argument("--q",     type=int, help="weight-quant bits (4,8)")
+    ap.add_argument("--seed", type=int)
+    ap.add_argument("--q", type=int, help="weight-quant bits (4,8)")
     ap.add_argument("--ref-audio", help="path to reference WAV")
-    ap.add_argument("--ref-text",  help="text matching the reference audio")
+    ap.add_argument("--ref-text", help="text matching the reference audio")
     ap.add_argument("--output", help="save full waveform to this WAV file", default=None)
 
     args = ap.parse_args()
 
     tts = F5TTSGenerator(
-        model_name=args.model, quantization_bits=args.q,
-        ref_audio_path=args.ref_audio, ref_audio_text=args.ref_text,
-        steps=args.steps, method=args.method, speed=args.speed,
+        model_name=args.model,
+        quantization_bits=args.q,
+        ref_audio_path=args.ref_audio,
+        ref_audio_text=args.ref_text,
+        steps=args.steps,
+        method=args.method,
+        speed=args.speed,
     )
 
     try:

@@ -29,7 +29,7 @@ def select_input_device():
 
 class Listener:
     def __init__(self, device=None, engine='vosk', model='en-us', ptt: bool = False, 
-                 silence_threshold=0.02, silence_duration=1.0, speech_timeout=30):
+                 silence_threshold=0.02, silence_duration=3.0, speech_timeout=30):
         """
         device: audio input device index or name
         engine: 'vosk' or 'whisper'
