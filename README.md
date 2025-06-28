@@ -72,3 +72,11 @@ You can customize various aspects of the system:
 - Speech rate: Modify the `rate` parameter in `TextToSpeech` initialization
 - Voice selection: Use the `--select-voice` flag to choose different voices
 - Audio device: Specify a device index using the `--device` argument
+
+
+### Survivor Special Notes 
+To run the robot, use robot.head_controller and launch on the GPIO device. Ensure multi-audio devices are setup so your host computer broadcasts to the Bluetooth audio of the GPIO device. Animiations are triggered using audio loopback. 
+
+Then launch the main application using the --headless flag. 
+
+There is also a request processing callback added, to allow the survivor minigames to run. This happens after the ASR text is captured.
