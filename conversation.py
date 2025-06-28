@@ -5,6 +5,7 @@ from robot.head_controller import HeadController  # Import the TalkingHead class
 from process_request import ChatBotProcessor
 from tts.tts_engine import TTSEngine  
 from robot.sound_device_monitor import OutputMonitor
+from survivor.process_games import SurvivorGames
 import random
 
 import constants 
@@ -35,7 +36,6 @@ class Conversation:
             asr_engine="whisper",
             tts_engine=None
         ):
-        
         self.listener = Listener(device=audio_device, model="en-us", engine=asr_engine)  # Initialize listener with ASR engine
 
         self.tts_engine = tts_engine
@@ -49,10 +49,9 @@ class Conversation:
         self.proccessor_lock = threading.Lock()
 
 
-    def process_request(self) -> str:
+    def process_request(self, callback_fn=None) -> str:
         print("TTS Speaking Status: ", self.tts_engine.speaking)
         print("Processor Status: ", self.processor.processing)
-        print("Sound Level: ", self.sound_monitor.sound_level())
 
         if not self.tts_engine.completed_speaking() or self.processor.processing:
             print("Currently processing a request or TTS is active. Please wait...")
@@ -62,6 +61,10 @@ class Conversation:
         print("Handling new request...")
         action_text = self.listener.listen()      
         print(f"Received: {action_text}")
+
+        if callback_fn:
+            callback_fn(action_text)
+
         self.run_request_processing_engine(action_text)
 
         time.sleep(1)
@@ -95,12 +98,12 @@ class Conversation:
         
         print("****** PROCESSING COMPLETE TTS DONE ******")
 
-    def start(self):
+    def start(self, callback_fn=None):
         print("Starting conversation... Hit ctrl-c to end")
         self.continue_talking = True
         try: 
             while self.continue_talking:
-                self.process_request()
+                self.process_request(callback_fn=callback_fn)
         except KeyboardInterrupt:
             print("Conversation ended")
             self.continue_talking = False
@@ -122,10 +125,16 @@ if __name__ == "__main__":
     args = args.parse_args()
     
     tts_engine = None 
+    cb = None #No callback on process request unless overridden
 
     if args.character.lower() == "jeff":
         prompt = constants.JEFF_PROMPT
         image = constants.JEFF_IMAGE
+
+        print("Setting Survivor Callback func")
+        game_class = SurvivorGames()
+        cb = game_class.request_cb
+
     elif args.character.lower() == "lizard":
         prompt = constants.LIZARD_PROMPT
         image = constants.LIZARD_IMAGE
@@ -143,7 +152,11 @@ if __name__ == "__main__":
     device = args.device
     if args.select_device:
         device = select_input_device()
-    conversation = Conversation(audio_device=device, prompt=prompt, tts_type=args.tts, tts_engine=tts_engine)
+    conversation = Conversation(
+        audio_device=device,
+        prompt=prompt,
+        tts_type=args.tts,
+        tts_engine=tts_engine)
     
     if args.say:
         print(f"Saying: {args.say}")
@@ -160,7 +173,7 @@ if __name__ == "__main__":
         conversation.run_request_processing_engine(args.text, preload=False)
     else:
         print("Starting conversation thread...")
-        conversation_thread = threading.Thread(target=conversation.start)
+        conversation_thread = threading.Thread(target=conversation.start, args=(cb,))
         conversation_thread.start()
     
     if not args.headless:
