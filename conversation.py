@@ -63,7 +63,9 @@ class Conversation:
         print(f"Received: {action_text}")
 
         if callback_fn:
-            callback_fn(action_text)
+            cb_text = callback_fn(action_text)
+            if cb_text:
+                action_text + f"/[cb action taken: {cb_text}/]"
 
         self.run_request_processing_engine(action_text)
 

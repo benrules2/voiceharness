@@ -23,4 +23,6 @@ class SurvivorGames:
     def request_cb(self, text):
         prayer, score = self.prayer_tracker.match_prayer(text)
         if prayer: 
+            print("Prayer detected! Saving outcome")
             self.update_prayer_score(prayer)
+            return "new prayer registered"

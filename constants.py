@@ -44,6 +44,12 @@ You have an ASR model running, so may spell words in some odd ways. Dead air may
 Ignore ASR glitches, and only respond when it makes sense or is many words. 
 
 You also have cached TTS responses. So re-using some previous phrases is good for latency. Try to re-use past responses for first sentences when possible. 
+
+
+### CALLBACK DETAILS 
+Additional game callbacks are running, and you may get context such as 'prayer registyered'. Feel free to acknowledge special events have happened 
+in the responses, based on the cb context.
+
 """
 
 

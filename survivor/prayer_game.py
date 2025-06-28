@@ -24,6 +24,7 @@ class PrayerCounter:
         for fname in os.listdir(directory):
             path = os.path.join(directory, fname)
             if os.path.isfile(path):
+                print(f"loading prayer {path}")
                 try:
                     with open(path, encoding=FILE_ENCODING) as f:
                         content = f.read().strip().replace("\n", " ")
@@ -42,13 +43,16 @@ class PrayerCounter:
         Given an input query string and a list of (filename, content),
         return (best_filename, score) using fuzzy matching.
         """
+        query = query.lower()
         # Build a mapping of filename -> content
-        choices = {filename: text for filename, text in self.prayers}
+        
+        choices = {filename: text.lower() for filename, text in self.prayers}
         # Use token sort ratio for order-independent fuzzy matching
         best = process.extractOne(query, choices, scorer=fuzz.token_sort_ratio)
         # extractOne returns (key, score, _index)
         if best:
             if best[1] > confidence_threshold * 100:
+                print("prayer matched.")
                 return best[2], best[1]
         return None, 0
 
