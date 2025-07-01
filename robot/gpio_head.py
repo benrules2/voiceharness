@@ -89,7 +89,7 @@ class RobotHead:
             step_size = -step_size 
         
         for i in range(current_angle, new_angle, step_size):
-            self._set_servo(ARM_PIN_0, i, move_delay=0.05)
+            self._set_servo(ARM_PIN_0, i, move_delay=0.08)
         
         self.arm_angle = new_angle
         self.last_arm_change = time.time()
@@ -173,6 +173,8 @@ class RobotHead:
                     self._toggle_arm(ArmPosition.UP)
                 else:
                     self._toggle_arm(ArmPosition.DOWN)
+            elif not speaking and self.arm_angle == self.arm_up:
+                self._toggle_arm(ArmPosition.DOWN)
 
     def cleanup(self):
         # reset and stop pulses
