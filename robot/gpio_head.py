@@ -3,10 +3,11 @@ import time
 import random
 import argparse
 import pigpio
+import threading
 from enum import IntEnum
 
 MOUTH_PIN = 13
-EYES_PIN = 12
+EYES_PIN  = 12
 ARM_PIN_0 = 19
 
 class EyePosition(IntEnum):
@@ -16,207 +17,179 @@ class EyePosition(IntEnum):
 
 class ArmPosition(IntEnum):
     UP   = 0
-    DOWN = 180  
+    DOWN = 180
+
+class AnimationComponent(threading.Thread):
+    def __init__(self, name, delay_func, step_func, check_interval=0.01):
+        super().__init__(name=name)
+        self.delay_func     = delay_func
+        self.step_func      = step_func
+        self.check_interval = check_interval
+        self.last_run       = time.time()
+        self.stop_event     = threading.Event()
+        self.daemon         = True
+
+    def run(self):
+        while not self.stop_event.is_set():
+            now   = time.time()
+            delay = self.delay_func()
+            if now - self.last_run >= delay:
+                try:
+                    self.step_func()
+                except Exception as e:
+                    print(f"[{self.name}] Error: {e}")
+                self.last_run = now
+            time.sleep(self.check_interval)
+
+    def stop(self):
+        self.stop_event.set()
 
 class RobotHead:
-    def __init__(
-        self,
-        mouth_pin=MOUTH_PIN,
-        eye_pin=EYES_PIN,
-        mouth_closed_angle=60,
-        mouth_open_angle=0,
-        arm_down_angle=0,
-        arm_up_angle=180
-    ):
+    def __init__(self,
+                 mouth_pin=MOUTH_PIN,
+                 eye_pin=EYES_PIN,
+                 mouth_closed_angle=60,
+                 mouth_open_angle=0,
+                 arm_down_angle=0,
+                 arm_up_angle=180,
+                 arm_delay=3,
+                 flap_delay_range=(0.05, 0.2),
+                 blink_delay=0.3,
+                 opened_delay=2.0,
+                 shocked_delay=3.0):
         self.pi = pigpio.pi()
         if not self.pi.connected:
             raise RuntimeError("Could not connect to pigpiod. Start with 'sudo pigpiod'.")
-        self.mouth_pin = mouth_pin
-        self.eye_pin = eye_pin
-        self.mouth_closed = mouth_closed_angle
-        self.mouth_open = mouth_open_angle
 
-        self.arm_down = arm_down_angle
-        self.arm_up = arm_up_angle
+        self.mouth_pin       = mouth_pin
+        self.eye_pin         = eye_pin
+        self.arm_pin         = ARM_PIN_0
+        self.mouth_closed    = mouth_closed_angle
+        self.mouth_open      = mouth_open_angle
+        self.arm_down        = arm_down_angle
+        self.arm_up          = arm_up_angle
 
-        # Mouth state
+        self.flap_delay_range = flap_delay_range
+        self.blink_delay       = blink_delay
+        self.opened_delay      = opened_delay
+        self.shocked_delay     = shocked_delay
+        self.arm_delay         = arm_delay
+
         self.is_mouth_open = False
-        self.last_mouth_move = time.time()
-        self.flap_delay_range = (0.05, 0.2)
+        self.eye_state     = EyePosition.OPEN
+        self.arm_angle     = self.arm_down
+        self.speaking      = False
 
-        # Eye state
-        self.eye_state = EyePosition.OPEN
-        self.last_eye_state_change = time.time()
-        self.blink_delay   = 0.3
-        self.opened_delay  = 2.0
-        self.shocked_delay = 3.0
-        
-        self.arm_delay = 3
-        self.last_arm_change = time.time()
-        self.arm_angle = self.arm_down
-
-        # Initialize servos
         self._set_servo(self.eye_pin,   EyePosition.OPEN.value, move_delay=0.05)
         self._set_servo(self.mouth_pin, self.mouth_closed,      move_delay=0.05)
-        self._toggle_arm(ArmPosition.DOWN)
+        self._move_arm(ArmPosition.DOWN)
 
+        self.mouth_comp = AnimationComponent("Mouth", self._mouth_delay, self._mouth_step)
+        self.eyes_comp  = AnimationComponent("Eyes",  self._eyes_delay,  self._eyes_step)
+        self.arm_comp   = AnimationComponent("Arm",   self._arm_delay,   self._arm_step)
+        for component in (self.mouth_comp, self.eyes_comp, self.arm_comp): 
+            component.start()
 
     def angle_to_pulse(self, angle: float) -> float:
-        min_pw = 500   # pulse width for 0°
-        max_pw = 2400  # pulse width for 180°
-        return min_pw + (angle / 180.0) * (max_pw - min_pw)
+        return 500 + (angle/180.0)*(2400-500)
 
     def _set_servo(self, pin: int, angle: float, move_delay=0.05):
-        pw = self.angle_to_pulse(angle)
-        self.pi.set_servo_pulsewidth(pin, pw)
+        self.pi.set_servo_pulsewidth(pin, self.angle_to_pulse(angle))
         time.sleep(move_delay)
+
+    def _mouth_delay(self):
+        return random.uniform(*self.flap_delay_range) if self.speaking else (0.05 if self.is_mouth_open else float('inf'))
     
-    def _toggle_arm(self, state: ArmPosition):
-        """Toggle arm position."""
+    def _mouth_step(self):
+        if self.speaking:
+            self._close_mouth() if self.is_mouth_open else self._open_mouth()
+        elif self.is_mouth_open:
+            self._close_mouth()
 
-        current_angle = self.arm_angle 
+    def _open_mouth(self, variable_width=False):
+        angle = random.uniform(self.mouth_open, self.mouth_open+15) if variable_width else self.mouth_open
+        self._set_servo(self.mouth_pin, angle, move_delay=random.uniform(*self.flap_delay_range))
+        self.is_mouth_open=True
 
-        if state == ArmPosition.UP:
-            new_angle = self.arm_up
-        elif state == ArmPosition.DOWN:
-            new_angle = self.arm_down
+    def _close_mouth(self):
+        self._set_servo(self.mouth_pin, self.mouth_closed, move_delay=random.uniform(*self.flap_delay_range))
+        self.is_mouth_open=False
+
+    def _eyes_delay(self):
+        if self.eye_state==EyePosition.BLINK: return self.blink_delay
+        if self.eye_state==EyePosition.SHOCKED: return self.shocked_delay
+        return self.opened_delay + random.uniform(-0.2,0.5)
+    
+    def _eyes_step(self):
+        if self.eye_state in (EyePosition.BLINK, EyePosition.SHOCKED):
+            self._set_eyes(EyePosition.OPEN, self.opened_delay)
         else:
-            raise ValueError("Invalid arm position")
+            choice = random.random()
+            if choice < 0.4: self._set_eyes(EyePosition.BLINK, self.blink_delay)
+            elif self.speaking and choice < 0.41: self._set_eyes(EyePosition.SHOCKED, self.shocked_delay)
 
-        step_size = 10 
+    def _set_eyes(self, pos: EyePosition, delay): 
+        self.eye_state=pos; self._set_servo(self.eye_pin,pos.value,move_delay=delay)
 
-        if new_angle < current_angle:
-            step_size = -step_size 
-        
-        for i in range(current_angle, new_angle, step_size):
-            self._set_servo(ARM_PIN_0, i, move_delay=0.08)
-        
-        self.arm_angle = new_angle
+    def _arm_delay(self): 
+        return self.arm_delay * random.uniform(1, 4.5) if self.speaking else self.arm_delay
+
+    def _arm_step(self):
+        if self.speaking:
+            # The arm_delay randomizes how rapid arm movements are
+            self._move_arm(ArmPosition.UP if self.arm_angle==self.arm_down else ArmPosition.DOWN)
+        elif not self.speaking and self.arm_angle!=self.arm_down:
+            self._move_arm(ArmPosition.DOWN)
+
+    def _move_arm(self, pos: ArmPosition):
+        tgt = self.arm_up if pos==ArmPosition.UP else self.arm_down
+        step=10 if tgt>self.arm_angle else -10
+        for angle in range(self.arm_angle, tgt, step): 
+            self._set_servo(self.arm_pin, angle, move_delay=0.08)
+        self.arm_angle = tgt
         self.last_arm_change = time.time()
 
-    # ─── MOUTH HELPERS ───────────────────────────────────────────────────────────
-    def _toggle_mouth_open(self, variable_width=False):
-        delay = random.uniform(*self.flap_delay_range)
-        if variable_width:
-            angle = random.uniform(self.mouth_open, self.mouth_open + 15)
-        else:
-            angle = self.mouth_open
-        self._set_servo(self.mouth_pin, angle, move_delay=delay)
-        self.is_mouth_open = True
+    def move(self, speaking_state: bool): 
+        # threaded components are watching state of speaking flag 
+        # This triggers motion in their respective _step functions 
 
-    def _toggle_mouth_close(self):
-        delay = random.uniform(*self.flap_delay_range)
-        self._set_servo(self.mouth_pin, self.mouth_closed, move_delay=delay)
-        self.is_mouth_open = False
-
-    # ─── EYE HELPERS ───────────────────────────────────────────────────────────────
-    def _toggle_eyes(self, position: EyePosition, move_delay: float):
-        self.eye_state = position
-        self._set_servo(self.eye_pin, position.value, move_delay=move_delay)
-
-    def _toggle_blink(self):
-        self._toggle_eyes(EyePosition.BLINK, self.blink_delay)
-
-    def _toggle_surprised(self):
-        self._toggle_eyes(EyePosition.SHOCKED, self.shocked_delay)
-
-    def _toggle_eyes_open(self):
-        self._toggle_eyes(EyePosition.OPEN, self.opened_delay)
-
-    def _get_eye_delay(self) -> float:
-        if self.eye_state == EyePosition.BLINK:
-            return self.blink_delay
-        elif self.eye_state == EyePosition.SHOCKED:
-            return self.shocked_delay
-        else:
-            # open-eye hold plus some randomness
-            return self.opened_delay + random.uniform(-0.2, 0.5)
-
-    # ─── MAIN ANIMATION LOOP ───────────────────────────────────────────────────────
-    def move(self, speaking: bool):
-        now = time.time()
-
-        # Mouth logic
-        if speaking:
-            # reset on start so first flap is immediate
-            if now - self.last_mouth_move > 1.0:
-                self.last_mouth_move = now
-
-            if now - self.last_mouth_move >= random.uniform(*self.flap_delay_range):
-                if self.is_mouth_open:
-                    self._toggle_mouth_close()
-                else:
-                    self._toggle_mouth_open(variable_width=False)
-                self.last_mouth_move = now
-
-        else:
-            if self.is_mouth_open:
-                self._set_servo(self.mouth_pin, self.mouth_closed, move_delay=0.05)
-                self.is_mouth_open = False
-            self.last_mouth_move = now
-
-        # Eye logic
-        if now - self.last_eye_state_change > self._get_eye_delay():
-            if self.eye_state in (EyePosition.BLINK, EyePosition.SHOCKED):
-                self._toggle_eyes_open()
-            else:
-                if random.random() < 0.4:
-                    self._toggle_blink()
-                elif speaking and random.random() < 0.01:
-                    self._toggle_surprised()
-            self.last_eye_state_change = now
-        
-        # Arm logic 
-        if now - self.last_arm_change > self.arm_delay:
-            if random.random() < 0.05 and speaking:
-                if self.arm_angle == self.arm_down:
-                    self._toggle_arm(ArmPosition.UP)
-                else:
-                    self._toggle_arm(ArmPosition.DOWN)
-            elif not speaking and self.arm_angle == self.arm_up:
-                self._toggle_arm(ArmPosition.DOWN)
+        self.speaking = speaking_state
 
     def cleanup(self):
-        # reset and stop pulses
-        self._set_servo(self.eye_pin,   EyePosition.OPEN.value)
-        self._set_servo(self.mouth_pin, self.mouth_closed)
-        self.pi.set_servo_pulsewidth(self.mouth_pin, 0)
-        self.pi.set_servo_pulsewidth(self.eye_pin,   0)
+        for c in (self.mouth_comp,self.eyes_comp,self.arm_comp):
+            c.stop()
+            c.join()
+
+        self._set_servo(self.eye_pin,EyePosition.OPEN.value)
+        self._set_servo(self.mouth_pin,self.mouth_closed)
+        self._move_arm(ArmPosition.DOWN)
+
+        self.pi.set_servo_pulsewidth(self.mouth_pin,0)
+        self.pi.set_servo_pulsewidth(self.eye_pin,0)
         self.pi.stop()
 
-def main():
+if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Control the robot's head servos.")
     parser.add_argument('--set-mouth', type=int, help='Set mouth servo angle (0-180)')
     parser.add_argument('--set-eyes',  type=int, help='Set eyes servo angle (0-180)')
-    parser.add_argument('--set-arm',  type=int, help='Set arm servo angle (0-180)')
-
+    parser.add_argument('--set-arm',   choices=["UP","DOWN"], help='Set arm position (UP or DOWN)')
     parser.add_argument('--run',       action='store_true', help='Run the head animation')
     args = parser.parse_args()
 
     controller = RobotHead()
-
     if args.set_mouth is not None:
-        controller._set_servo(MOUTH_PIN, args.set_mouth)
-        controller.cleanup()
+        controller._set_servo(controller.mouth_pin, args.set_mouth)
     elif args.set_eyes is not None:
-        controller._set_servo(EYES_PIN, args.set_eyes)
-        controller.cleanup()
+        controller._set_servo(controller.eye_pin, args.set_eyes)
     elif args.set_arm is not None:
-        controller._set_servo(ARM_PIN_0, args.set_arm)
-        controller.cleanup()
+        controller._move_arm(ArmPosition[args.set_arm])
     elif args.run:
         try:
             while True:
-                # example: speak 2s, silent 2s
-                speaking = (time.time() % 4) < 2
-                controller.move(speaking)
+                controller.set_speaking((time.time()%4)<2)
                 time.sleep(0.05)
         except KeyboardInterrupt:
             print("Stopping...")
-        finally:
-            controller.cleanup()
     else:
         parser.print_help()
-
-if __name__ == "__main__":
-    main()
+    controller.cleanup()
