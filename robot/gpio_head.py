@@ -48,7 +48,7 @@ class RobotHead:
     def __init__(self,
                  mouth_pin=MOUTH_PIN,
                  eye_pin=EYES_PIN,
-                 mouth_closed_angle=60,
+                 mouth_closed_angle=100,
                  mouth_open_angle=0,
                  arm_down_angle=0,
                  arm_up_angle=180,
@@ -190,6 +190,6 @@ if __name__ == "__main__":
                 time.sleep(0.05)
         except KeyboardInterrupt:
             print("Stopping...")
+        controller.cleanup()
     else:
         parser.print_help()
-    controller.cleanup()
