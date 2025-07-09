@@ -22,7 +22,7 @@ def _prefix_phrase():
         "Well Well Well...",
         "Hmm, that's an interesting question...",
         "Give me a second to consider that...",
-        "Let me ponder that for a moment..."
+        "Let me ponder that for a moment...",
         "thinking, thinking....",
         "I hear you. Let's see...",
     ])
@@ -49,19 +49,28 @@ class Conversation:
         self.proccessor_lock = threading.Lock()
 
 
-    def process_request(self, callback_fn=None) -> str:
-        print("TTS Speaking Status: ", self.tts_engine.speaking)
-        print("Processor Status: ", self.processor.processing)
+    def process_request(self, callback_fn=None, debug=False) -> str:
+        if debug:
+            print("TTS Speaking Status: ", self.tts_engine.speaking)
+            print("Processor Status: ", self.processor.processing)
 
         if not self.tts_engine.completed_speaking() or self.processor.processing:
-            print("Currently processing a request or TTS is active. Please wait...")
+            if debug:
+                print("Currently processing a request or TTS is active. Please wait...")
             time.sleep(1.0)
             return
             
-        print("Handling new request...")
+        print("Handling new request... \n")
         action_text = self.listener.listen()      
-        print(f"Received: {action_text}")
+        print(f"Received: \n {action_text}")
 
+        if not action_text:
+            if debug:
+                print("No input received, skipping processing.")
+            return
+    
+        print(f"\n {'*'* 20} \n")
+        
         if callback_fn:
             cb_text = callback_fn(action_text)
             if cb_text:

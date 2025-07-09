@@ -25,30 +25,37 @@ TARGET_RMS = 0.1
 mx.set_default_device(mx.gpu)
 
 
+import re
+
 def split_sentences(text: str):
+    # 1) split on sentence-enders, keeping the delimiter
     parts = re.split(r"([.!?;:])", text)
     if len(parts) <= 1:
         return [text.strip()] if text.strip() else []
 
+    # 2) stitch each chunk back to its delimiter
     sentences = [
-        parts[i] + parts[i + 1] for i in range(0, len(parts) - 1, 2)
+        parts[i] + parts[i + 1]
+        for i in range(0, len(parts) - 1, 2)
         if (parts[i] + parts[i + 1]).strip()
     ]
 
-    # Merge sentences until minimum length is reached
-    merged_sentences = []
-    current_sentence = ""
-    for sentence in sentences:
-        if len(current_sentence.split()) < 5:
-            current_sentence += " " + sentence.strip()
+    # 3) drop any chunk that has no letters/digits
+    sentences = [s for s in sentences if re.search(r"\w", s)]
+
+    # 4) merge tiny fragments into longer ones
+    merged = []
+    buf = ""
+    for s in sentences:
+        if len(buf.split()) < 5:
+            buf += " " + s.strip()
         else:
-            merged_sentences.append(current_sentence.strip())
-            current_sentence = sentence.strip()
+            merged.append(buf.strip())
+            buf = s.strip()
+    if buf:
+        merged.append(buf.strip())
 
-    if current_sentence.strip():
-        merged_sentences.append(current_sentence.strip())
-
-    return merged_sentences
+    return merged
 
 
 # ─────────────────────────── AUDIO ─────────────────────────── #
@@ -106,6 +113,12 @@ class AudioPlayer:
             self.stream.close()
         self.playing = False
 
+    def finish_playback(self):
+        """
+        Sleep for the latency duration noted by the current driver status
+        """
+        playback_delay = float(self.stream.latency)
+        time.sleep(playback_delay * 1.1)
 
 # ───────────────────────  F5-TTS WRAPPER  ────────────────────── #
 class F5TTSGenerator:
@@ -114,7 +127,7 @@ class F5TTSGenerator:
         quantization_bits: Optional[int],
         ref_audio_path: Optional[str],
         ref_audio_text: Optional[str],
-        steps=10,
+        steps=9,
         method="euler",
         cfg_strength=1.5,
         sway=-1.0,
@@ -298,7 +311,11 @@ class F5TTSGenerator:
         latency = self.audio.buffer_size / self.audio.sample_rate
         quiet = time.monotonic() - self.audio.last_audio_ts >= latency
         with self.active_lock:
-            return quiet and not self.audio.audio_buffer and self.task_queue.empty()
+            if quiet and not self.audio.audio_buffer and self.task_queue.empty():
+                self.audio.finish_playback()
+                return True
+        return False
+
 
     def cleanup(self):
         self.gpu_alive = False
