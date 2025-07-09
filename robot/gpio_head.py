@@ -6,6 +6,8 @@ import pigpio
 import threading
 from enum import IntEnum
 
+MIN_SERVO_PULSE = 600
+MAX_SERVO_PULSE = 2400
 MOUTH_PIN = 13
 EYES_PIN  = 12
 ARM_PIN_0 = 19
@@ -16,8 +18,8 @@ class EyePosition(IntEnum):
     SHOCKED = 179
 
 class ArmPosition(IntEnum):
-    UP   = 0
-    DOWN = 180
+    UP   = 50
+    DOWN = 0
 
 class AnimationComponent(threading.Thread):
     def __init__(self, name, delay_func, step_func, check_interval=0.01):
@@ -50,8 +52,8 @@ class RobotHead:
                  eye_pin=EYES_PIN,
                  mouth_closed_angle=100,
                  mouth_open_angle=0,
-                 arm_down_angle=0,
-                 arm_up_angle=180,
+                 arm_down_angle=ArmPosition.DOWN.value,
+                 arm_up_angle=ArmPosition.UP.value,
                  arm_delay=3,
                  flap_delay_range=(0.05, 0.2),
                  blink_delay=0.3,
@@ -89,9 +91,10 @@ class RobotHead:
         self.arm_comp   = AnimationComponent("Arm",   self._arm_delay,   self._arm_step)
         for component in (self.mouth_comp, self.eyes_comp, self.arm_comp): 
             component.start()
+        
 
     def angle_to_pulse(self, angle: float) -> float:
-        return 500 + (angle/180.0)*(2400-500)
+        return MIN_SERVO_PULSE + (angle/180.0)*(MAX_SERVO_PULSE-MIN_SERVO_PULSE)
 
     def _set_servo(self, pin: int, angle: float, move_delay=0.05):
         self.pi.set_servo_pulsewidth(pin, self.angle_to_pulse(angle))
@@ -143,9 +146,9 @@ class RobotHead:
 
     def _move_arm(self, pos: ArmPosition):
         tgt = self.arm_up if pos==ArmPosition.UP else self.arm_down
-        step=10 if tgt>self.arm_angle else -10
+        step=5 if tgt > self.arm_angle else -10
         for angle in range(self.arm_angle, tgt, step): 
-            self._set_servo(self.arm_pin, angle, move_delay=0.08)
+            self._set_servo(self.arm_pin, angle, move_delay=0.15)
         self.arm_angle = tgt
         self.last_arm_change = time.time()
 
@@ -190,6 +193,8 @@ if __name__ == "__main__":
                 time.sleep(0.05)
         except KeyboardInterrupt:
             print("Stopping...")
-        controller.cleanup()
+            controller.cleanup()
     else:
         parser.print_help()
+
+    controller.cleanup()
