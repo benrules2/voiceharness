@@ -6,7 +6,7 @@ import pigpio
 import threading
 from enum import IntEnum
 
-MIN_SERVO_PULSE = 600
+MIN_SERVO_PULSE = 500
 MAX_SERVO_PULSE = 2400
 MOUTH_PIN = 13
 EYES_PIN  = 12
@@ -128,8 +128,10 @@ class RobotHead:
             self._set_eyes(EyePosition.OPEN, self.opened_delay)
         else:
             choice = random.random()
-            if choice < 0.4: self._set_eyes(EyePosition.BLINK, self.blink_delay)
-            elif self.speaking and choice < 0.41: self._set_eyes(EyePosition.SHOCKED, self.shocked_delay)
+            if choice < 0.4: 
+                self._set_eyes(EyePosition.BLINK, self.blink_delay)
+            elif self.speaking and choice < 0.6: 
+                self._set_eyes(EyePosition.SHOCKED, self.shocked_delay)
 
     def _set_eyes(self, pos: EyePosition, delay): 
         self.eye_state=pos; self._set_servo(self.eye_pin,pos.value,move_delay=delay)
@@ -182,8 +184,10 @@ if __name__ == "__main__":
     controller = RobotHead()
     if args.set_mouth is not None:
         controller._set_servo(controller.mouth_pin, args.set_mouth)
+        time.sleep(2)
     elif args.set_eyes is not None:
         controller._set_servo(controller.eye_pin, args.set_eyes)
+        time.sleep(2)
     elif args.set_arm is not None:
         controller._move_arm(ArmPosition[args.set_arm])
     elif args.run:
