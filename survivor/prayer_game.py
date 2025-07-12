@@ -38,14 +38,14 @@ class PrayerCounter:
     def __init__(self, directory: str = PRAYERS_DIR):
         self._load_prayers(directory=directory)
 
-    def match_prayer(self, query: str, confidence_threshold=0.6):
+    def match_prayer(self, query: str, confidence_threshold=0.75):
         """
         Given an input query string and a list of (filename, content),
         return (best_filename, score) using fuzzy matching.
         """
         query = query.lower()
         # Build a mapping of filename -> content
-        
+
         choices = {filename: text.lower() for filename, text in self.prayers}
         # Use token sort ratio for order-independent fuzzy matching
         best = process.extractOne(query, choices, scorer=fuzz.token_sort_ratio)

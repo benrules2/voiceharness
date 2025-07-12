@@ -11,11 +11,20 @@ from datetime import datetime
 
 # Vosk imports
 from vosk import Model, KaldiRecognizer
-# Faster Whisper import (replaces standard whisper)
+# Faster Whisper import
 from faster_whisper import WhisperModel
 from pynput.keyboard import Key, KeyCode, Listener as KeyListener
 
 import time as t
+from enum import StrEnum
+
+
+class InputType(StrEnum):
+    """Types of input modes supported"""
+    ASR = 'asr'
+    PTT = 'ptt'
+    TEXT = 'text'
+
 
 def select_input_device():
     devices = sd.query_devices()
@@ -23,31 +32,39 @@ def select_input_device():
         if device['max_input_channels'] > 0:
             print(f'Device {i}: \n' + dumps(device) + '\n ---- \n')
     index = int(input('Enter the index of the device you want to use: '))
-    print(f'Using device {index} ')
+    print(f'Using device {index}')
     return index
 
 
 class Listener:
-    def __init__(self, device=None, engine='vosk', model='en-us', ptt: bool = False, 
-                 silence_threshold=0.02, silence_duration=1.5, speech_timeout=60):
+    def __init__(
+        self,
+        device=None,
+        engine='vosk',
+        model='en-us',
+        mode: InputType = InputType.ASR,
+        silence_threshold=0.02,
+        silence_duration=1.5,
+        speech_timeout=60
+    ):
         """
         device: audio input device index or name
         engine: 'vosk' or 'whisper'
         model: vosk language model code or whisper model size
-        ptt: if True, press SPACE to start/stop
-        silence_threshold: audio level below which is considered silence (0.0-1.0)
-        silence_duration: seconds of silence before stopping (float)
-        speech_timeout: max seconds to record before forcing stop
+        mode: InputType (ASR, PTT, TEXT)
+        silence_threshold: level below which is silence (0.0-1.0)
+        silence_duration: seconds of silence before stopping
+        speech_timeout: max recording seconds
         """
         self.engine = engine.lower()
         self.device = device
-        self.ptt = ptt
+        self.mode = mode
         self.recording = False
         self.pressed_keys = set()
         self.q = queue.Queue()
         self.audio_frames = []
-        
-        # Silence detection parameters
+
+        # Silence detection
         self.silence_threshold = silence_threshold
         self.silence_duration = silence_duration
         self.speech_timeout = speech_timeout
@@ -55,32 +72,26 @@ class Listener:
         self.speech_detected = False
         self.current_audio_level = 0.0
 
-        # Load speech model
+        # Load ASR model
         if self.engine == 'vosk':
             self.asr = Model(lang=model, model_name=f'vosk-model-small-{model}-0.15')
         elif self.engine == 'whisper':
             if model == 'en-us':
-                model = 'base'  # Much faster than large models
-            
-            # Use faster-whisper with Apple Silicon optimization
+                model = 'base'
             print(f"Loading faster-whisper model: {model}")
-            self.asr = WhisperModel(
-                model, 
-                device="auto",  # Will automatically use GPU if available
-                compute_type="int8"  # Faster on Apple Silicon
-            )
+            self.asr = WhisperModel(model, device='auto', compute_type='int8')
         else:
             raise ValueError(f"Unknown engine: {engine}")
 
-        # Keyboard listener for Ctrl+P toggle and SPACE start/stop
+        # Keyboard listener: Ctrl+P for PTT, Ctrl+T for TEXT, SPACE toggles recording in PTT
         def _on_press(key):
             self.pressed_keys.add(key)
-            # Ctrl+P to toggle PTT
-            if ((Key.ctrl_l in self.pressed_keys or Key.ctrl_r in self.pressed_keys)
-                    and key == KeyCode.from_char('p')):
-                self._toggle_ptt()
-            # SPACE toggles recording when PTT active
-            elif key == Key.space and self.ptt:
+            ctrl = any(k in self.pressed_keys for k in (Key.ctrl_l, Key.ctrl_r))
+            if ctrl and key == KeyCode.from_char('p'):
+                self._toggle_mode_ptt()
+            elif ctrl and key == KeyCode.from_char('t'):
+                self._toggle_mode_text()
+            elif key == Key.space and self.mode == InputType.PTT:
                 self.recording = not self.recording
                 if self.recording:
                     print('Recording started (press SPACE again to stop)')
@@ -90,8 +101,7 @@ class Listener:
                     print('Recording stopped')
 
         def _on_release(key):
-            if key in self.pressed_keys:
-                self.pressed_keys.remove(key)
+            self.pressed_keys.discard(key)
 
         self._key_listener = KeyListener(on_press=_on_press, on_release=_on_release)
         self._key_listener.daemon = True
@@ -100,106 +110,96 @@ class Listener:
         self.samplerate = 16000
 
     def _reset_silence_detection(self):
-        """Reset silence detection state"""
         self.last_audio_time = t.time()
         self.speech_detected = False
         self.current_audio_level = 0.0
 
-    def _toggle_ptt(self):
-        """Toggle PTT mode with Ctrl+P"""
-        self.ptt = not self.ptt
+    def _toggle_mode_ptt(self):
+        """Toggle between ASR and PTT modes"""
+        self.mode = InputType.PTT if self.mode != InputType.PTT else InputType.ASR
         self.recording = False
-        mode = 'PTT' if self.ptt else 'always-listening'
-        print(f'PTT mode toggled. Now in {mode} mode.')
+        print(f'Mode switched. Now in {self.mode} mode.')
+
+    def _toggle_mode_text(self):
+        """Toggle between ASR and TEXT modes"""
+        self.mode = InputType.TEXT if self.mode != InputType.TEXT else InputType.ASR
+        self.recording = False
+        print(f'Mode switched. Now in {self.mode} mode.')
 
     def _should_stop_recording(self):
-        """Check if recording should stop based on silence detection"""
-        current_time = t.time()
-        
-        # If we haven't detected speech yet, don't stop
+        now = t.time()
         if not self.speech_detected:
             return False
-        
-        # Check for speech timeout
-        if self.last_audio_time and (current_time - self.last_audio_time) > self.speech_timeout:
-            print("Speech timeout reached")
+        if (now - self.last_audio_time) > self.speech_timeout:
+            print('Speech timeout reached')
             return True
-        
         if self.current_audio_level < self.silence_threshold:
-            silence_time = current_time - self.last_audio_time
-            if silence_time >= self.silence_duration:
-                print(f"Silence detected for {silence_time:.1f}s - stopping")
+            if (now - self.last_audio_time) >= self.silence_duration:
+                print(f"Silence for {now - self.last_audio_time:.1f}s - stopping")
                 return True
-        
         return False
+    
+    def _finalize(self, rec=None):
+        if self.engine == 'vosk':
+            return loads(rec.FinalResult()).get('text','').strip()
+        else:
+            self._transcribe_whisper(self.audio_frames)
 
     def listen(self, max_duration=20) -> str:
-        """
-        Listen and return transcribed text.
-        In PTT mode: press SPACE to start/stop.
-        Otherwise: always-listen with silence detection for Whisper.
-        """
+        # TEXT mode: manual entry
+        if self.mode == InputType.TEXT:
+            return input('Enter text (or Ctrl+T to return to ASR): ').strip()
+
+        # prepare ASR or PTT
         if self.engine == 'vosk':
             rec = KaldiRecognizer(self.asr, self.samplerate)
-        
-        # Reset silence detection
         self._reset_silence_detection()
-        
-        # open audio stream once
+
         with sd.RawInputStream(
             samplerate=self.samplerate,
-            blocksize=4000,  # Smaller blocks for better silence detection
+            blocksize=4000,
             device=self.device,
             dtype='int16',
             channels=1,
             callback=self.callback
         ):
-            if self.ptt:
-                print('PTT active: press SPACE to start, press again to stop.')
-                # wait start
+            # PTT mode
+            if self.mode == InputType.PTT:
+                print('PTT mode: press SPACE to toggle recording')
                 while not self.recording:
                     t.sleep(0.05)
-                print('Begin streaming...')
-                # stream until STOP
                 while self.recording:
-                    data = self.q.get()
-                    if self.engine == 'vosk':
-                        rec.AcceptWaveform(data)
-                        self.audio_frames = None
-                    else:
-                        self.audio_frames.append(data)
-                # finalize
-                if self.engine == 'vosk':
-                    return loads(rec.FinalResult()).get('text', '').strip()
-                else:
-                    return self._transcribe_whisper(self.audio_frames)
-            else:
-                # always-listen with silence detection
+                    frame = self.q.get()
+                    if self.engine == 'vosk': rec.AcceptWaveform(frame)
+                    else: self.audio_frames.append(frame)
+                return self._finalize(rec)
+
+            # ASR mode
+            if self.mode == InputType.ASR:
                 start = datetime.now()
                 if self.engine == 'vosk':
-                    print('Listening (Vosk)...')
+                    print('ASR always-listen (Vosk)...')
                     while (datetime.now() - start).seconds < max_duration:
-                        data = self.q.get()
-                        if rec.AcceptWaveform(data):
+                        frame = self.q.get()
+                        if rec.AcceptWaveform(frame):
                             text = loads(rec.Result()).get('text', '').strip()
                             if text:
                                 return text
                     return loads(rec.FinalResult()).get('text', '').strip()
                 else:
-                    print(f'Listening (Whisper with silence detection)...')
+                    print('ASR always-listen (Whisper)...')
                     frames = []
                     while (datetime.now() - start).seconds < max_duration:
                         if not self.q.empty():
                             frames.append(self.q.get())
-                            # Check if we should stop due to silence
                             if self._should_stop_recording():
                                 break
                         else:
-                            t.sleep(0.01)  # Small delay to prevent busy waiting
-                    
-                    if not frames:
-                        return ""
+                            t.sleep(0.01)
                     return self._transcribe_whisper(frames)
+
+            # fallback
+            return ""
 
     def _transcribe_whisper(self, frames: list) -> str:
         if not frames:
@@ -314,54 +314,39 @@ class Listener:
 
 if __name__ == '__main__':
     def int_or_str(text):
-        try:
-            return int(text)
-        except ValueError:
-            return text
+        try: return int(text)
+        except: return text
 
     parser = argparse.ArgumentParser(add_help=False)
-    parser.add_argument('-l', '--list-devices', action='store_true', help='show devices and exit')
-    args, remaining = parser.parse_known_args()
+    parser.add_argument('-l','--list-devices',action='store_true')
+    args, rem = parser.parse_known_args()
     if args.list_devices:
-        print(sd.query_devices())
-        parser.exit(0)
+        print(sd.query_devices()); parser.exit(0)
 
     parser = argparse.ArgumentParser(parents=[parser])
-    parser.add_argument('-d', '--device', type=int_or_str, help='input device ID or substring')
-    parser.add_argument('-e', '--engine', choices=['vosk', 'whisper'], default='whisper',
-                        help='ASR engine')
-    parser.add_argument('-m', '--model', default='en-us',
-                        help='vosk model code or whisper size')
-    parser.add_argument('--ptt', action='store_true', help='enable push-to-talk via SPACE')
-    parser.add_argument('--silence-threshold', type=float, default=0.01,
-                        help='audio level threshold for silence detection (0.0-1.0)')
-    parser.add_argument('--silence-duration', type=float, default=2.0,
-                        help='seconds of silence before stopping')
-    parser.add_argument('--speech-timeout', type=float, default=30,
-                        help='max seconds to record before forcing stop')
-    args = parser.parse_args(remaining)
+    parser.add_argument('-d','--device',type=int_or_str)
+    parser.add_argument('-e','--engine',choices=['vosk','whisper'],default='whisper')
+    parser.add_argument('-m','--model',default='en-us')
+    parser.add_argument('--mode',type=InputType,default=InputType.ASR)
+    parser.add_argument('--silence-threshold',type=float,default=0.01)
+    parser.add_argument('--silence-duration',type=float,default=2.0)
+    parser.add_argument('--speech-timeout',type=float,default=30)
+    args = parser.parse_args(rem)
 
-    print(f"Starting listener with:")
-    print(f"  Engine: {args.engine}")
-    print(f"  Device: {args.device}")
-    print(f"  Silence threshold: {args.silence_threshold}")
-    print(f"  Silence duration: {args.silence_duration}s")
-    print(f"  Speech timeout: {args.speech_timeout}s")
-    print(f"  PTT mode: {args.ptt}")
-    print()
-
-    listener = Listener(device=args.device, engine=args.engine,
-                        model=args.model, ptt=args.ptt,
-                        silence_threshold=args.silence_threshold,
-                        silence_duration=args.silence_duration,
-                        speech_timeout=args.speech_timeout)
+    print(f"Starting: engine={args.engine}, device={args.device}, mode={args.mode}")
+    listener = Listener(
+        device=args.device,
+        engine=args.engine,
+        model=args.model,
+        mode=args.mode,
+        silence_threshold=args.silence_threshold,
+        silence_duration=args.silence_duration,
+        speech_timeout=args.speech_timeout
+    )
     try:
         while True:
             text = listener.listen()
-            if text:
-                print(f'\nRecognized: {text}')
-            else:
-                print('\nNo speech detected')
+            print(f"Recognized: {text}" if text else "No input detected")
     except KeyboardInterrupt:
-        print('\nDone')
+        print("Done")
         parser.exit(0)
