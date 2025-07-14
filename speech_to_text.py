@@ -196,6 +196,10 @@ class Listener:
                                 break
                         else:
                             t.sleep(0.01)
+                    
+                    if not frames:
+                        return ""
+                    
                     return self._transcribe_whisper(frames)
 
             # fallback

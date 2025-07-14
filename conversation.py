@@ -104,7 +104,9 @@ class Conversation:
         while self.processor.processing or not self.tts_engine.completed_speaking():
             if buffer:
                 with self.lock_tts:
+                    print(f"buffered text: {buffer}")
                     self.tts_engine.speak(buffer) 
+                    buffer = ""  
             time.sleep(0.2)
         
         print("****** PROCESSING COMPLETE TTS DONE ******")
