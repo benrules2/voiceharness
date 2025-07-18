@@ -43,13 +43,13 @@ class TTSEngine:
         else:
             raise ValueError(f"Unknown TTSType: {tts_type}")
 
-    def speak(self, text: str):
+    def speak(self, text: str, output=None):
         """
         Clean and speak the given text.
         """
         # Remove unsupported characters
         cleaned = re.sub(r"[^a-zA-Z0-9\s\.,!?\'’\"]", ' ', text)
-        self._engine.speak(cleaned)
+        self._engine.speak(text = cleaned, output = output)
 
     def completed_speaking(self) -> bool:
         """

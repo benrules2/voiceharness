@@ -90,9 +90,9 @@ class Conversation:
             # Check for punctuation or long words
             for i, word in enumerate(words):
                 if len(word) > 20 or re.search(r"[.!?;:]", word):
-                    output = " ".join(words[: i + 1])
+                    text_out = " ".join(words[: i + 1])
                     with self.lock_tts:
-                        self.tts_engine.speak(output)  # Use talking_head.say
+                        self.tts_engine.speak(text=text_out)  # Use talking_head.say
                     buffer = " ".join(words[i + 1 :])
 
         if preload:
@@ -133,6 +133,8 @@ if __name__ == "__main__":
     args.add_argument("--headless", default=False, action="store_true", help="Run without GUI (no talking head)")
     args.add_argument("--text", default=None, help="Text to process instead of listening to audio")
     args.add_argument("--say", default=None, help="Text to say immediately without processing")
+    args.add_argument("--output", default=None, help="Output file to say when using --say command")
+
     args.add_argument("--asr", default="whisper", choices=["whisper", "vosk"], help="ASR model to use")
 
     args = args.parse_args()
@@ -151,6 +153,7 @@ if __name__ == "__main__":
     elif args.character.lower() == "lizard":
         prompt = constants.LIZARD_PROMPT
         image = constants.LIZARD_IMAGE
+
     elif args.character.lower() == "ben":
         prompt = constants.BEN_PROMPT
         ref_audio = constants.BEN_REF_WAV
@@ -165,6 +168,7 @@ if __name__ == "__main__":
     device = args.device
     if args.select_device:
         device = select_input_device()
+
     conversation = Conversation(
         audio_device=device,
         prompt=prompt,
@@ -174,7 +178,7 @@ if __name__ == "__main__":
     if args.say:
         print(f"Saying: {args.say}")
         with conversation.lock_tts:
-            conversation.tts_engine.speak(args.say)
+            conversation.tts_engine.speak(text=args.say, output=args.output)
             while not conversation.tts_engine.completed_speaking():
                 time.sleep(10)
 

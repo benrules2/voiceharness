@@ -43,7 +43,7 @@ class Listener:
         engine='vosk',
         model='en-us',
         mode: InputType = InputType.ASR,
-        silence_threshold=0.02,
+        silence_threshold=0.01,
         silence_duration=1.5,
         speech_timeout=60
     ):
@@ -59,10 +59,13 @@ class Listener:
         self.engine = engine.lower()
         self.device = device
         self.mode = mode
-        self.recording = False
+        self.recording_ptt = False
         self.pressed_keys = set()
         self.q = queue.Queue()
         self.audio_frames = []
+
+        # Flag to catch switches from asr to ptt
+        self.mode_toggled = False 
 
         # Silence detection
         self.silence_threshold = silence_threshold
@@ -92,11 +95,11 @@ class Listener:
             elif ctrl and key == KeyCode.from_char('t'):
                 self._toggle_mode_text()
             elif key == Key.space and self.mode == InputType.PTT:
-                self.recording = not self.recording
-                if self.recording:
+                self.recording_ptt = not self.recording_ptt
+                if self.recording_ptt:
+                    #Reset audio queue so it only takes new audio
                     print('Recording started (press SPACE again to stop)')
-                    self.audio_frames = []
-                    self._reset_silence_detection()
+                    self._reset_audio_buffers()
                 else:
                     print('Recording stopped')
 
@@ -117,14 +120,24 @@ class Listener:
     def _toggle_mode_ptt(self):
         """Toggle between ASR and PTT modes"""
         self.mode = InputType.PTT if self.mode != InputType.PTT else InputType.ASR
-        self.recording = False
+        self.recording_tts = False
+        self.mode_toggled = True
+        self._reset_audio_buffers()
         print(f'Mode switched. Now in {self.mode} mode.')
 
     def _toggle_mode_text(self):
         """Toggle between ASR and TEXT modes"""
         self.mode = InputType.TEXT if self.mode != InputType.TEXT else InputType.ASR
-        self.recording = False
         print(f'Mode switched. Now in {self.mode} mode.')
+        self.recording_tts = False
+        self.mode_toggled = True
+        self._reset_audio_buffers()
+
+    def _reset_audio_buffers(self):
+        with self.q.mutex:
+            self.q.queue.clear()
+        self.audio_frames = []
+        self._reset_silence_detection()
 
     def _should_stop_recording(self):
         now = t.time()
@@ -143,9 +156,10 @@ class Listener:
         if self.engine == 'vosk':
             return loads(rec.FinalResult()).get('text','').strip()
         else:
-            self._transcribe_whisper(self.audio_frames)
+            return self._transcribe_whisper(self.audio_frames)
 
     def listen(self, max_duration=20) -> str:
+
         # TEXT mode: manual entry
         if self.mode == InputType.TEXT:
             return input('Enter text (or Ctrl+T to return to ASR): ').strip()
@@ -154,6 +168,9 @@ class Listener:
         if self.engine == 'vosk':
             rec = KaldiRecognizer(self.asr, self.samplerate)
         self._reset_silence_detection()
+
+        #listen for switch from ptt, text, asr
+        self.mode_toggled = False 
 
         with sd.RawInputStream(
             samplerate=self.samplerate,
@@ -165,21 +182,26 @@ class Listener:
         ):
             # PTT mode
             if self.mode == InputType.PTT:
+                rec = None
                 print('PTT mode: press SPACE to toggle recording')
-                while not self.recording:
+                while not self.recording_ptt and not self.mode_toggled:
                     t.sleep(0.05)
-                while self.recording:
+                while self.recording_ptt and not self.mode_toggled:
                     frame = self.q.get()
-                    if self.engine == 'vosk': rec.AcceptWaveform(frame)
-                    else: self.audio_frames.append(frame)
-                return self._finalize(rec)
+                    if self.engine == 'vosk': 
+                        # This code is broken
+                        rec.AcceptWaveform(frame)
+                    else:
+                        self.audio_frames.append(frame)
+
+                return self._finalize()
 
             # ASR mode
-            if self.mode == InputType.ASR:
+            elif self.mode == InputType.ASR:
                 start = datetime.now()
                 if self.engine == 'vosk':
                     print('ASR always-listen (Vosk)...')
-                    while (datetime.now() - start).seconds < max_duration:
+                    while (datetime.now() - start).seconds < max_duration and not self.mode_toggled:
                         frame = self.q.get()
                         if rec.AcceptWaveform(frame):
                             text = loads(rec.Result()).get('text', '').strip()
@@ -189,7 +211,7 @@ class Listener:
                 else:
                     print('ASR always-listen (Whisper)...')
                     frames = []
-                    while (datetime.now() - start).seconds < max_duration:
+                    while (datetime.now() - start).seconds < max_duration and not self.mode_toggled:
                         if not self.q.empty():
                             frames.append(self.q.get())
                             if self._should_stop_recording():

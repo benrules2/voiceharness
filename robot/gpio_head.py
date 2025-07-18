@@ -6,7 +6,7 @@ import pigpio
 import threading
 from enum import IntEnum
 
-MIN_SERVO_PULSE = 500
+MIN_SERVO_PULSE = 600
 MAX_SERVO_PULSE = 2400
 MOUTH_PIN = 13
 EYES_PIN  = 12

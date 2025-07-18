@@ -222,6 +222,7 @@ class F5TTSGenerator:
             else:
                 with self.active_lock:
                     print(f"[GPU] ⏳ Generating & caching: '{text}'")
+                    
                 wave, _ = self._do_sample(text, **p)
                 wave = wave[self.ref_audio.shape[0]:]
                 mx.eval(wave)

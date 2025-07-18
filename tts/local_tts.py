@@ -68,7 +68,9 @@ class TextToSpeech:
                 print(f"TTS Worker Error: {e}")
                 self.speaking = False
 
-    def speak(self, text):
+    def speak(self, text, output = None):
+        if output: 
+            raise "Output not supported on local tts"
         if not self.speaking and self.text_queue.empty():
             self.text_queue.put(self._init_phrase)
         self.text_queue.put(text)

@@ -72,8 +72,10 @@ class ElevenLabsTTS:
                 print(f"Worker error: {e}")
                 self.speaking = False
 
-    def speak(self, text):
+    def speak(self, text, output: None):
         """Add text to speaking queue."""
+        if output: 
+            raise "Output not supported with 11labs tts"
         if text and text.strip():
             self.text_queue.put(text.strip())
 
