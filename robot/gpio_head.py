@@ -18,7 +18,7 @@ class EyePosition(IntEnum):
     SHOCKED = 179
 
 class ArmPosition(IntEnum):
-    UP   = 50
+    UP = 130
     DOWN = 0
 
 class AnimationComponent(threading.Thread):
@@ -54,7 +54,7 @@ class RobotHead:
                  mouth_open_angle=0,
                  arm_down_angle=ArmPosition.DOWN.value,
                  arm_up_angle=ArmPosition.UP.value,
-                 arm_delay=3,
+                 arm_delay=5,
                  flap_delay_range=(0.05, 0.2),
                  blink_delay=0.3,
                  opened_delay=2.0,
@@ -94,7 +94,10 @@ class RobotHead:
         
 
     def angle_to_pulse(self, angle: float) -> float:
-        return MIN_SERVO_PULSE + (angle/180.0)*(MAX_SERVO_PULSE-MIN_SERVO_PULSE)
+        pulse = MIN_SERVO_PULSE + (angle/180.0)*(MAX_SERVO_PULSE-MIN_SERVO_PULSE)
+        pulse = max(MIN_SERVO_PULSE, pulse)
+        pulse = min(MAX_SERVO_PULSE, pulse)
+        return pulse
 
     def _set_servo(self, pin: int, angle: float, move_delay=0.05):
         self.pi.set_servo_pulsewidth(pin, self.angle_to_pulse(angle))
@@ -146,11 +149,12 @@ class RobotHead:
         elif not self.speaking and self.arm_angle!=self.arm_down:
             self._move_arm(ArmPosition.DOWN)
 
-    def _move_arm(self, pos: ArmPosition):
+    def _move_arm(self, pos: ArmPosition, step_size=30, delay=0.2):
         tgt = self.arm_up if pos==ArmPosition.UP else self.arm_down
-        step=5 if tgt > self.arm_angle else -10
-        for angle in range(self.arm_angle, tgt, step): 
-            self._set_servo(self.arm_pin, angle, move_delay=0.15)
+        step = step_size if tgt > self.arm_angle else -step_size
+        for angle in range(self.arm_angle, tgt + step, step):
+            self._set_servo(self.arm_pin, angle, move_delay=delay)
+        self._set_servo(self.arm_pin, tgt)    
         self.arm_angle = tgt
         self.last_arm_change = time.time()
 
