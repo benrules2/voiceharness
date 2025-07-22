@@ -216,22 +216,21 @@ class F5TTSGenerator:
             key = self._cache_key(text, p)
             cache_path = self.cache_dir / f"{key}.npy"
 
-            if cache_path.exists():
-                samples = np.load(cache_path)
-                print(f"🔄 Cache hit for: '{text}' -> {cache_path.name}")
-            else:
-                with self.active_lock:
-                    print(f"[GPU] ⏳ Generating & caching: '{text}'")
-                    
-                wave, _ = self._do_sample(text, **p)
-                wave = wave[self.ref_audio.shape[0]:]
-                mx.eval(wave)
-                samples = np.asarray(wave)
-                # save to disk cache
-                np.save(cache_path, samples)
+            with self.active_lock:
 
-            # playback
-            self.audio.queue_audio(samples)
+                if cache_path.exists():
+                    samples = np.load(cache_path)
+                else:   
+                    wave, _ = self._do_sample(text, **p)
+                    wave = wave[self.ref_audio.shape[0]:]
+                    mx.eval(wave)
+                    samples = np.asarray(wave)
+                    # save to disk cache
+                    np.save(cache_path, samples)
+
+                # playback
+                print(f"[OUTPUT]: '{text}'")
+                self.audio.queue_audio(samples)
 
             # accumulate for saving if requested
             if self._save_buffer is not None:

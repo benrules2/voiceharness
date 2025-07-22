@@ -59,8 +59,11 @@ class Conversation:
                 print("Currently processing a request or TTS is active. Please wait...")
             time.sleep(1.0)
             return
-            
-        print("Handling new request... \n")
+        
+        print(f"{'*' * 20} \n")
+        print("LISTENING... \n")
+        print(f"{'*' * 20} \n")
+
         action_text = self.listener.listen()      
         print(f"Received: \n {action_text}")
 
@@ -109,7 +112,7 @@ class Conversation:
                     buffer = ""  
             time.sleep(0.2)
         
-        print("****** PROCESSING COMPLETE TTS DONE ******")
+        print("INTERACTION COMPLETE")
 
     def start(self, callback_fn=None):
         print("Starting conversation... Hit ctrl-c to end")
