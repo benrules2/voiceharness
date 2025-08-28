@@ -44,7 +44,7 @@ class Listener:
         model='en-us',
         mode: InputType = InputType.ASR,
         silence_threshold=0.01,
-        silence_duration=1.5,
+        silence_duration=2,
         speech_timeout=60
     ):
         """
@@ -158,7 +158,7 @@ class Listener:
         else:
             return self._transcribe_whisper(self.audio_frames)
 
-    def listen(self, max_duration=20) -> str:
+    def listen(self, max_duration=60) -> str:
 
         # TEXT mode: manual entry
         if self.mode == InputType.TEXT:
@@ -324,7 +324,6 @@ class Listener:
             max_level = 0.0
 
         self.current_audio_level = audio_level
-        
         # Update silence detection state
         if audio_level > self.silence_threshold:
             self.speech_detected = True
@@ -354,9 +353,9 @@ if __name__ == '__main__':
     parser.add_argument('-e','--engine',choices=['vosk','whisper'],default='whisper')
     parser.add_argument('-m','--model',default='en-us')
     parser.add_argument('--mode',type=InputType,default=InputType.ASR)
-    parser.add_argument('--silence-threshold',type=float,default=0.01)
-    parser.add_argument('--silence-duration',type=float,default=2.0)
-    parser.add_argument('--speech-timeout',type=float,default=30)
+    parser.add_argument('--silence-threshold',type=float,default=0.02)
+    parser.add_argument('--silence-duration',type=float,default=2.5)
+    parser.add_argument('--speech-timeout',type=float,default=180)
     args = parser.parse_args(rem)
 
     print(f"Starting: engine={args.engine}, device={args.device}, mode={args.mode}")

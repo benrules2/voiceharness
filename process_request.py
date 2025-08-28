@@ -31,8 +31,11 @@ class ChatBotProcessor:
         
         self.add_message_to_chat_context(message)
         
+        model="command-a-03-2025"
+        # model = "command-r-plus"
+
         res = self.co.chat_stream(
-            model="command-a-03-2025",
+            model=model,
             messages=self.chat_history,
         )
 

@@ -24,7 +24,7 @@ def _prefix_phrase():
         "Give me a second to consider that...",
         "Let me ponder that for a moment...",
         "thinking, thinking....",
-        "I hear you. Let's see...",
+        "I hear you. Let's see..."
     ])
 
 class Conversation:
@@ -167,6 +167,19 @@ if __name__ == "__main__":
             f5_ref_audio_path=constants.BEN_REF_WAV,
             f5_ref_audio_text=constants.BEN_REF_TEXT
         )
+    elif args.character.lower() == "mike":
+        prompt = constants.MIKE_PROMPT
+        image = None 
+        tts_engine = TTSEngine(
+            tts_type="f5_tts",
+            f5_ref_audio_path=constants.MIKE_REF_WAV,
+            f5_ref_audio_text=constants.MIKE_REF_TEXT,
+            steps=10,
+        )
+        if not args.headless:
+            print("Mike does not support talking head mode, running in headless mode.")
+            args.headless = True
+
 
     device = args.device
     if args.select_device:

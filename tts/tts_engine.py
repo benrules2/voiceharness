@@ -24,7 +24,8 @@ class TTSEngine:
         tts_type: TTSType = TTSType.LOCAL,
         f5_ref_audio_path: str = None,
         f5_ref_audio_text: str = None,
-        f5_quantization_bits: int = 4
+        f5_quantization_bits: int = 4,
+        steps: int = 9,
     ):
         self._type = tts_type
         if tts_type == TTSType.LOCAL:
@@ -38,7 +39,8 @@ class TTSEngine:
             self._engine = F5TTSGenerator(
                 quantization_bits=f5_quantization_bits,
                 ref_audio_path=f5_ref_audio_path or JEFF_REF_WAV,
-                ref_audio_text=f5_ref_audio_text or JEFF_REF_AUDIO
+                ref_audio_text=f5_ref_audio_text or JEFF_REF_AUDIO,
+                steps=steps,
             )
         else:
             raise ValueError(f"Unknown TTSType: {tts_type}")

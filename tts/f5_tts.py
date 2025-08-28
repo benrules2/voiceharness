@@ -136,6 +136,7 @@ class F5TTSGenerator:
         cache_dir: Optional[str] = None,
     ):
         # generation parameters
+        print(f"Using reference audio: {ref_audio_path} (text: {ref_audio_text})")
         self.steps = steps
         self.method = method
         self.cfg_strength = cfg_strength
